@@ -15,7 +15,7 @@ responsibility begins and ends. Flows between components are in
 [flows.md](flows.md); the canonical harness lifecycle is in
 [harness-lifecycles.md](harness-lifecycles.md); which features need which
 harness capabilities is in [capability-matrix.md](capability-matrix.md); typed
-interfaces are in [interfaces.md](interfaces.md). Decisions and their
+interfaces will be in [interfaces.md](interfaces.md) (Phase 2). Decisions and their
 alternatives are in [../adr/](../adr/README.md). Where a section depends on an
 ADR that is still `proposed`, it is tagged so nobody treats it as settled.
 
@@ -71,7 +71,7 @@ Rules of the hexagon, enforced in CI by dependency-cruiser `[ADR-0026 proposed]`
 - `packages/kernel` imports nothing from `packages/adapter-*`, `packages/reporters`, `packages/cli`, and nothing from `node:fs`, `node:child_process`, `node:http(s)` or `node:net`.
 - Every other package imports the kernel only through its public `index.ts`.
 - No file under `packages/kernel` or `packages/rules-core` contains a harness name (`claude`, `gemini`, `codex`, `cursor`, `opencode`, `copilot`, `pi`) outside of test fixtures and pack data.
-- Components exchange data only through the typed interfaces in [interfaces.md](interfaces.md). No component reads another component's files, environment variables or globals.
+- Components exchange data only through the typed interfaces in [interfaces.md](interfaces.md) (written in Phase 2). No component reads another component's files, environment variables or globals.
 
 ## 2. Layers
 
@@ -113,6 +113,7 @@ explicit:
 - **Inputs**: `caddie hook <event>` with hook stdin; `caddie finalize <id>`; `caddie report|summary|rules|pack|bundle|eval|doctor|statusline`.
 - **Outputs**: hook JSON (`hookSpecificOutput.additionalContext`, `systemMessage`) or nothing for async hooks; human text, Markdown or JSON for commands; the status-line segment.
 - **Owns**: the static registry (which adapters, collectors, rules, reporters and sinks are active); `safeHook` (catch everything, log to `~/.caddie/logs/hook.log`, exit 0 with valid output); argument parsing.
+- **Not the only host**: the kernel exports `createCaddie(ports)` and is importable as a library with no filesystem or `process.argv` access at import time. The CLI is one host; in-process harness plugins (OpenCode, Pi) are another and wire their own port implementations. See harness-lifecycles.md §4.3.
 - **Depends on**: kernel public API and every adapter package.
 - **Must not know about**: transcript formats or rule internals.
 - **Failure behaviour**: a hook never exits non-zero and never prints malformed JSON; a sync hook that exceeds its time budget returns empty output and logs; commands print a one-line error and exit 1.

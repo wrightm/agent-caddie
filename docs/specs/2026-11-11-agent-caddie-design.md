@@ -248,14 +248,20 @@ depends on them.
 Tracked as issues once the repository has issue templates. At the time of
 writing:
 
-1. Whether `effort` can be observed on Claude Code per request (transcript
-   field) or only as a session setting; this decides whether
-   `effort.high-on-simple-turns` can fire per turn or only per session.
-2. Whether the Gemini CLI chat log carries cache usage fields; this decides
-   the degraded mode of `cache.*` rules on that harness.
-3. The exact set of derived events a logs-only adapter (Codex) can produce
-   with acceptable confidence, which the fitness exercise in
-   harness-lifecycles.md answers in part.
+1. Answered 2026-11-11: `effort` is observable per request on Claude
+   Code. Transcript `assistant` entries carry `effort` and `perTurnEffort`,
+   so `effort.high-on-simple-turns` fires per turn.
+2. Answered 2026-11-11: the Gemini CLI chat record carries `tokens.cached`
+   per model response, so `cache.*` rules run at full confidence on that
+   harness (derived from the record, not the hook).
+3. Partly answered by the fitness exercise in harness-lifecycles.md §4: a
+   logs-only Codex adapter can derive every canonical event except
+   `notification` from the rollout, and five port requirements were
+   recorded there for Phase 2. Still open: the confidence factor for
+   derived turn boundaries when the rollout's `TurnComplete` event is
+   missing.
+4. Open: whether Cursor's transcript format will be documented; until then
+   the Cursor adapter is hooks-only and cost is unavailable there.
 
 ## 11. Sources
 
