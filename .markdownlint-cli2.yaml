@@ -1,0 +1,15 @@
+# markdownlint-cli2 configuration. Run locally with:
+#   npx markdownlint-cli2 "**/*.md"
+gitignore: true
+config:
+  default: true
+  # Prose is wrapped by hand at ~80 columns, but tables and link-heavy lines
+  # cannot be, so line length is not enforced.
+  MD013: false
+  # Table delimiter rows are written compactly (|---|---|); cell padding is
+  # not worth policing.
+  MD060: false
+  # Documents carry `title:` in front matter and repeat it as the H1, so the
+  # front-matter title must not count as a second top-level heading.
+  MD025:
+    front_matter_title: ""
