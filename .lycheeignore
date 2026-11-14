@@ -1,0 +1,7 @@
+# Links lychee must not fail on. One regular expression per line, matched
+# against the resolved URL.
+#
+# Planned documents that are linked before they exist. Remove each line in
+# the PR that adds the file.
+docs/architecture/interfaces\.md$
+docs/adr/README\.md$
