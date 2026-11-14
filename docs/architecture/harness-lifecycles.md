@@ -22,7 +22,7 @@ listed per harness. `[ADR-0019, ADR-0025 proposed]`
 
 ### 1.1 State machine
 
-```
+```text
                  ┌──────────────────────────────────────────────────────────┐
                  │                         SESSION                          │
                  │                                                          │
@@ -139,7 +139,7 @@ the same day for the usage fields.
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
 | session.start | `SessionStart` (`source: startup`) | O | input carries `session_id`, `transcript_path`, `cwd`, `effort.level`; output `hookSpecificOutput.additionalContext` |
-| session.resume | `SessionStart` (`source: resume|fork`) | O | input adds `seconds_since_last_response`, `context_tokens`, `prompt_cache_likely_expired`, `estimated_cache_write_usd` (v2.1.251+): a direct cold-cache signal |
+| session.resume | `SessionStart` (`source: resume\|fork`) | O | input adds `seconds_since_last_response`, `context_tokens`, `prompt_cache_likely_expired`, `estimated_cache_write_usd` (v2.1.251+): a direct cold-cache signal |
 | session.clear | `SessionStart` (`source: clear`), paired `SessionEnd` (`reason: clear`) | O | |
 | prompt.submitted | `UserPromptSubmit` | O | `prompt` text available; Caddie keeps heuristics only; 30 s timeout |
 | model.request | none as a settings hook | D | from transcript `assistant` entries; mods API `turn.step` exists but Caddie does not use mods in M1 |
@@ -147,7 +147,7 @@ the same day for the usage fields.
 | tool.before | `PreToolUse` | O | not subscribed in M1 (cost without benefit); tool calls are derived from transcript `tool_use` blocks |
 | tool.after | `PostToolUse` / `PostToolUseFailure` | O | not subscribed in M1; `tool_result` sizes derived from the transcript |
 | turn.end | `Stop`; `StopFailure` on API error | O | async-capable; Caddie reads the transcript delta here |
-| context.compact.before | `PreCompact` (`trigger: manual|auto`) | O | `systemMessage` is discarded on this event, so the cold-compaction warning is delivered on the next `UserPromptSubmit` or via the status line |
+| context.compact.before | `PreCompact` (`trigger: manual\|auto`) | O | `systemMessage` is discarded on this event, so the cold-compaction warning is delivered on the next `UserPromptSubmit` or via the status line |
 | context.compact.after | `PostCompact` (+ `SessionStart source: compact`) | O | carries `compact_summary`; Caddie records length only |
 | subagent.start | `SubagentStart` (`agent_id`, `agent_type`) | O | |
 | subagent.stop | `SubagentStop` (`agent_transcript_path`) | O | nested transcript at `<session>/subagents/agent-<id>.jsonl` |
@@ -207,12 +207,12 @@ Sources: google-gemini/gemini-cli `docs/hooks/{index,reference,writing-hooks,bes
 | tool.before | `BeforeTool` (`tool_name`, `tool_input`, `mcp_context`) | O | not subscribed in M1 |
 | tool.after | `AfterTool` (`tool_response`) | O | not subscribed in M1; sizes derived from the record |
 | turn.end | `AfterAgent` (`prompt_response`, `stop_hook_active`) | O | |
-| context.compact.before | `PreCompress` (`trigger: auto|manual`) | O | advisory, fired without awaiting |
+| context.compact.before | `PreCompress` (`trigger: auto\|manual`) | O | advisory, fired without awaiting |
 | context.compact.after | none | D | from the next model request's size drop, or the `chat_compression` telemetry event when telemetry is enabled |
 | subagent.start | none | D | subagent transcripts appear under `chats/<parentSessionId>/<subagentSessionId>.jsonl`; start inferred from the file's first record |
 | subagent.stop | none | D | inferred from the file's last record; the migrator maps Claude `SubagentStop` to `AfterAgent`, which is not a subagent event |
 | model.switch | none | D | model id changes between `BeforeModel` calls |
-| session.end | `SessionEnd` (`reason: exit|clear|logout|prompt_input_exit|other`) | O | best effort, not awaited |
+| session.end | `SessionEnd` (`reason: exit\|clear\|logout\|prompt_input_exit\|other`) | O | best effort, not awaited |
 | notification | `Notification` (`ToolPermission` only) | O | not subscribed |
 
 Capabilities declared: `hasTranscript`, `hasUsageInHooks` (total only; cache
@@ -329,7 +329,7 @@ the kernel.
 
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
-| session.start | `session_start {reason: startup|new}` (after `project_trust`, `resources_discover`) | O | |
+| session.start | `session_start {reason: startup\|new}` (after `project_trust`, `resources_discover`) | O | |
 | session.resume | `session_start {reason: resume, previousSessionFile}`; pre-hook `session_before_switch` | O | `fork` is a resume with a new file |
 | session.clear | `session_before_switch {reason: new}` → `session_shutdown {reason: new}` → `session_start {reason: new}` | O | `/new` is the clear analogue; emitted once from the `session_start` |
 | prompt.submitted | `input {text, source}` then `before_agent_start {prompt, systemPrompt}` | O | `before_agent_start` can return a `message` to inject context |
@@ -338,12 +338,12 @@ the kernel.
 | tool.before | `tool_call {toolName, input, parentToolCallId?}` and `tool_execution_start` | O | not subscribed in M3 beyond `tool_execution_start` |
 | tool.after | `tool_result` and `tool_execution_end {result, isError, durationMs}` | O | |
 | turn.end | `turn_end {turnIndex, message, toolResults}`; run-level `agent_end` → `agent_before_settle` → `agent_settled {aborted}` | O | canonical `turn.end` maps to `agent_settled` (idle); Pi's `turn_end` is per model step |
-| context.compact.before | `session_before_compact {reason: manual|threshold|overflow, preparation.tokensBefore}` | O | cancellable; can supply a custom summary |
+| context.compact.before | `session_before_compact {reason: manual\|threshold\|overflow, preparation.tokensBefore}` | O | cancellable; can supply a custom summary |
 | context.compact.after | `session_compact {compactionEntry}`; failure `session_compact_failed` | O | compaction `usage` recorded on the entry |
 | subagent.start | none | D | nested tool calls carry `parentToolCallId`; subagents are an example extension only |
 | subagent.stop | none | D | `tool_execution_end` with `parentToolCallId` |
 | model.switch | `model_select`; `model_change` entry in the session file | O | `thinking_level_select` is the effort analogue |
-| session.end | `session_shutdown {reason: quit|reload|new|resume|fork}` | O | |
+| session.end | `session_shutdown {reason: quit\|reload\|new\|resume\|fork}` | O | |
 | notification | `ctx.ui.notify`, `ctx.ui.setStatus(key, text)` footer segment, `setWidget` | O | |
 
 Pi also emits `cache_warming_decision {warmCost, missCost,
@@ -394,7 +394,7 @@ Pi that fires a hook on every model request.
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
 | session.start | `SessionStart` (`source: startup`) | O | output `hookSpecificOutput.additionalContext` becomes developer context; `permission_mode` on the input |
-| session.resume | `SessionStart` (`source: resume|fork`) | O | |
+| session.resume | `SessionStart` (`source: resume\|fork`) | O | |
 | session.clear | `SessionStart` (`source: clear`) | O | start side only; `SessionEnd` `reason` is always `other` today |
 | prompt.submitted | `UserPromptSubmit` | O | `prompt` text available; can block; heuristics only |
 | model.request | `PreModelRequest` | O | fires per attempt, including retries inside a turn; diagnostic only |
@@ -402,7 +402,7 @@ Pi that fires a hook on every model request.
 | tool.before | `PreToolUse` (+ `PermissionRequest` for approval gates) | O | not subscribed in M3; tool calls derived from `FunctionCall` rollout items |
 | tool.after | `PostToolUse` | O | not subscribed |
 | turn.end | `Stop`; `Interrupt` for aborted turns | O | `Stop` output must be JSON; `{"continue": false}` is never sent |
-| context.compact.before | `PreCompact` (`trigger: manual|auto`) | O | `systemMessage` is a UI warning, so the cold-compaction nudge can be shown here |
+| context.compact.before | `PreCompact` (`trigger: manual\|auto`) | O | `systemMessage` is a UI warning, so the cold-compaction nudge can be shown here |
 | context.compact.after | `PostCompact` (+ `SessionStart source: compact`) | O | |
 | subagent.start | `SubagentStart` (`agent_id`, `agent_type`) | O | |
 | subagent.stop | `SubagentStop` (`agent_transcript_path`, `last_assistant_message`) | O | `SessionEnd` never fires for subagents |
@@ -467,13 +467,13 @@ transcript format, and no token usage anywhere outside the SDK.
 | model.response | `afterAgentResponse` (`text`), `afterAgentThought` (`text`, `duration_ms`) | O | per assistant message, not per API request; no usage |
 | tool.before | `preToolUse`; specific `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile` | O | the adapter subscribes to `preToolUse` only |
 | tool.after | `postToolUse` (`tool_output`, `duration`), `postToolUseFailure`; specific `afterShellExecution`, `afterMCPExecution`, `afterFileEdit` | O | output size observable here, which replaces the transcript for `tools.output-bloat` |
-| turn.end | `stop` (`status: completed|aborted|error`, `loop_count`) | O | `followup_message` would loop the agent; never sent |
+| turn.end | `stop` (`status: completed\|aborted\|error`, `loop_count`) | O | `followup_message` would loop the agent; never sent |
 | context.compact.before | `preCompact` (`trigger`, `context_tokens`, `context_window_size`, `context_usage_percent`, `is_first_compaction`) | O | observational; `user_message` is shown at compaction time |
 | context.compact.after | none | — | derived from the next `afterAgentResponse` after a `preCompact` |
 | subagent.start | `subagentStart` (`subagent_id`, `subagent_type`, `subagent_model`, `is_parallel_worker`) | O | `subagent_model` makes `subagents.main-model` evaluable without a transcript |
 | subagent.stop | `subagentStop` (`status`, `duration_ms`, `message_count`, `tool_call_count`, `agent_transcript_path`) | O | |
 | model.switch | none | D | `model_id` on every hook input |
-| session.end | `sessionEnd` (`reason: completed|aborted|error|window_close|user_close`, `duration_ms`) | O | fire-and-forget; IDE and CLI only |
+| session.end | `sessionEnd` (`reason: completed\|aborted\|error\|window_close\|user_close`, `duration_ms`) | O | fire-and-forget; IDE and CLI only |
 | notification | none | — | `user_message` outputs are the only human-facing channel |
 
 Capabilities declared: `canInjectContext` (`additional_context` on
@@ -519,7 +519,7 @@ names.
 
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
-| session.start | `sessionStart` (`source: startup|new`) | O | `additionalContext` output, joined across hooks; `initialPrompt` present for `-p` runs |
+| session.start | `sessionStart` (`source: startup\|new`) | O | `additionalContext` output, joined across hooks; `initialPrompt` present for `-p` runs |
 | session.resume | `sessionStart` (`source: resume`) | O | |
 | session.clear | `sessionEnd` (`reason: user_exit`, detached) then `sessionStart` (`source: new`) | O | the adapter pairs them by `cwd` and timestamp within 5 s |
 | prompt.submitted | `userPromptSubmitted` (`prompt`); `userPromptTransformed` | O | `modifiedPrompt` is SDK only; heuristics only |
@@ -533,7 +533,7 @@ names.
 | subagent.start | `subagentStart` (`agentName`, `transcriptPath`) | O | not emitted for the built-in `general-purpose` agent |
 | subagent.stop | `subagentStop` (`agentId`, `agentType`, `response`) | O | |
 | model.switch | none | D | event log |
-| session.end | `sessionEnd` (`reason: complete|error|abort|timeout|user_exit`) | O | |
+| session.end | `sessionEnd` (`reason: complete\|error\|abort\|timeout\|user_exit`) | O | |
 | notification | `notification` (`notification_type`: `shell_completed`, `agent_completed`, `agent_idle`, `permission_prompt`, `elicitation_dialog`) | O | async; CLI only; not subscribed |
 
 Capabilities declared: `canInjectContext`, `canNotifyHuman` (hook

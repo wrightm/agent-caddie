@@ -30,7 +30,7 @@ directly. Everything that touches the outside world does so through a **port**
 (a package outside the kernel). Tests replace every adapter with an in-memory
 double. `[ADR-0019 proposed]`
 
-```
+```text
                  driving side (things that call Caddie)
    ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
    │ harness hooks      │  │ transcripts / logs │  │ CLI, agents, CI    │
@@ -270,7 +270,7 @@ explicit:
 
 ## 4. Data the system owns
 
-```
+```text
 ~/.caddie/                      (override with CADDIE_HOME)
   config.json                   user configuration
   pack/overrides.json           user pack overrides; pack/org.json cached organisation pack
