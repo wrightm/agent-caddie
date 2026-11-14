@@ -12,8 +12,23 @@ from, nudges quietly, reports per session and over time, and teaches. Rules can
 be tuned by the user while Caddie stays honest about the side effects of that
 tuning. Everything stays on your machine.
 
-Design documents will land under `docs/` as they are reviewed. See
-`docs/README.md` once it exists for the map.
+## Design documents
+
+Design documents land under `docs/` as they are reviewed. So far:
+
+- [Architecture overview](docs/architecture/overview.md): the hexagon, its
+  ports and every component.
+- [Flows](docs/architecture/flows.md): sequence diagrams for the session
+  lifecycle, reports, rule overrides and bundles.
+- [Harness lifecycles](docs/architecture/harness-lifecycles.md): the canonical
+  lifecycle and how seven harnesses map onto it.
+- [Capability matrix](docs/architecture/capability-matrix.md): which features
+  need which harness capabilities.
+- [Design spec](docs/specs/2026-11-11-agent-caddie-design.md): the
+  point-in-time design record (status `draft`).
+
+Interfaces, the test strategy and the decision records (ADRs) follow in later
+phases.
 
 ## Licence
 

@@ -6,6 +6,7 @@ coverage/
 .DS_Store
 .env
 .env.*
+!.env.example
 *.tsbuildinfo
 evals/results/
 .vitest-cache/

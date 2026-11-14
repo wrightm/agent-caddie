@@ -18,7 +18,8 @@ living-docs: [docs/architecture/overview.md, docs/architecture/flows.md, docs/ar
 
 Coding-agent harnesses such as Claude Code spend tokens in ways their users
 cannot see. The 2026-11-11 research (`Claude Code token optimisation
-playbook`) found that most overspend and most avoidable quality loss comes
+playbook`, unpublished) found that most overspend and most avoidable quality
+loss comes
 from a handful of observable behaviours: an expensive default model and
 effort, a bloated standing prefix, compactions after the cache has gone
 cold, subagents running on the main model, tool-output bloat and vague
@@ -239,7 +240,8 @@ Milestones: **M1 Observe** (this spec's scope, Claude Code only), **M2
 Coach** (LLM providers and prompt, HTML report), **M3 Harnesses** (Gemini
 CLI adapter first, then Codex, Cursor, OpenCode, Copilot CLI, Pi as
 contributors and capabilities allow). Work packages WP1–WP10 for M1 are
-listed in the plan and will become tracking issues. Every PR is human
+listed in the maintainer's phased plan, which is not yet in this repository;
+they will become tracking issues here before M1 work starts. Every PR is human
 reviewed; ADRs are reviewed just in time before the work package that
 depends on them.
 
@@ -265,8 +267,8 @@ writing:
 
 ## 11. Sources
 
-- `~/reports/Claude Code token optimisation playbook.md` (2026-11-11) and its
-  notes.
+- "Claude Code token optimisation playbook" (2026-11-11) and its notes:
+  the maintainer's unpublished research, not in this repository.
 - Harness documentation verified for harness-lifecycles.md, listed there.
 - Architecture references: Cockburn, "Hexagonal architecture"; MADR 4.0; the
   Diátaxis framework.
