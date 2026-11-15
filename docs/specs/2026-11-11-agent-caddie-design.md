@@ -54,8 +54,9 @@ and they do not coach.
 - HTML reports (roadmap), OpenTelemetry export, Windows CI.
 - LLM coaching execution (config, interfaces and budget metering ship in M1;
   providers and the prompt ship in M2).
-- Adapters other than Claude Code (the Gemini CLI adapter is the first
-  follow-up and drives the lifecycle design now).
+- Adapters other than Claude Code. The second harness is chosen at the
+  start of M3; Gemini CLI serves only as the second reference point for the
+  lifecycle design now.
 
 ## 4. Users and how they meet Caddie
 
@@ -237,11 +238,12 @@ findings contract is the one external interface and is versioned by
 ## 9. Delivery
 
 Milestones: **M1 Observe** (this spec's scope, Claude Code only), **M2
-Coach** (LLM providers and prompt, HTML report), **M3 Harnesses** (Gemini
-CLI adapter first, then Codex, Cursor, OpenCode, Copilot CLI, Pi as
-contributors and capabilities allow). Work packages WP1–WP10 for M1 are
-listed in the maintainer's phased plan, which is not yet in this repository;
-they will become tracking issues here before M1 work starts. Every PR is human
+Coach** (LLM providers and prompt, HTML report), **M3 Harnesses** (a second
+adapter, chosen by an ADR at the start of M3 on user demand, capability
+coverage and effort; then the others among Gemini CLI, Codex CLI, Cursor,
+OpenCode, Copilot CLI and Pi as contributors and capabilities allow). Work
+packages WP1–WP10 for M1 are tracked as issues under the M1 milestone in
+this repository. Every PR is human
 reviewed; ADRs are reviewed just in time before the work package that
 depends on them.
 
