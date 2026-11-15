@@ -33,8 +33,30 @@ maintainer's. Direct pushes are blocked.
    Pull requests are squash-merged, so the title becomes the commit on
    `main`. Types in use: `feat`, `fix`, `docs`, `test`, `refactor`, `ci`,
    `chore`.
-4. Say in the description what changed, why, and how you checked it.
+4. Say in the description what changed, why, and how you checked it, and
+   name the issue it belongs to (see [Linking work](#linking-work)).
 5. Make sure the checks pass and every review conversation is resolved.
+
+## Linking work
+
+Every pull request belongs to an issue, and says so in its description:
+
+- `Part of #N` when the issue stays open after the pull request merges;
+- `Closes #N` when the pull request finishes the issue. GitHub then closes
+  the issue on merge.
+
+That one line is what keeps the rest in step. The issue carries the
+milestone, the [project board](https://github.com/users/wrightm/projects/1)
+follows the issue, and the pull request appears on the issue's timeline. A
+`linked issue` check fails a pull request whose description names no issue.
+If nothing fits, open an issue first.
+
+A large piece of work has a tracking issue with a task list. When a pull
+request completes one of its deliverables, tick the box once it has merged.
+
+Coding agents do all of this themselves, including moving items on the
+board with `scripts/board.sh`. Their instructions are in
+[AGENTS.md](AGENTS.md).
 
 ## Review
 
@@ -46,8 +68,10 @@ what.
 
 ## Checks
 
-Three checks run on every pull request and must pass before merge. You can
-run them locally from the repository root:
+Three checks run on every pull request and must pass before merge. A
+fourth, `linked issue`, reads the description (see
+[Linking work](#linking-work)). You can run the three locally from the
+repository root:
 
 ```sh
 # Markdown style

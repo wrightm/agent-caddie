@@ -1,0 +1,32 @@
+name: pull request
+
+# Checks that a pull request names the issue it belongs to, so the issue,
+# its milestone and the project board stay in step without anyone linking
+# things by hand afterwards. See CONTRIBUTING.md, "Linking work".
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  linked-issue:
+    name: linked issue
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require "Part of #N" or "Closes #N" in the description
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$BODY" | grep -Eiq '(part of|closes|fixes|resolves) #[0-9]+'; then
+            echo "The description names an issue."
+          else
+            echo "::error::The description names no issue. Add \"Part of #N\", or \"Closes #N\" if this pull request finishes the issue. See CONTRIBUTING.md, \"Linking work\"."
+            exit 1
+          fi
