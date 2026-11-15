@@ -44,7 +44,7 @@ it.
 |---|---|
 | How mature is the project? | The status line at the top of the [README](README.md) |
 | Where is it going, and what is out of scope? | This page |
-| What is being worked on now? | [Open issues](https://github.com/wrightm/agent-caddie/issues) and the project board |
+| What is being worked on now? | The [project board](https://github.com/users/wrightm/projects/1) and [open issues](https://github.com/wrightm/agent-caddie/issues) |
 | What belongs to which milestone, and how far along is it? | [Milestones](https://github.com/wrightm/agent-caddie/milestones) |
 | What does a large piece of work involve? | Its tracking issue, which carries a task list |
 | What has shipped? | The changelog and GitHub releases, from the first release |
