@@ -13,6 +13,9 @@ will grow as code, tests and tooling land.
   open an issue or a pull request with a link to the source.
 - **Open an issue** for a question, an idea or a problem. Issue templates
   are not in place yet, so plain issues are fine.
+- **Vote on priorities.** Add a 👍 reaction to the issues you care about.
+  [ROADMAP.md](ROADMAP.md) says where the project is going, what is out of
+  scope, and where to find current status.
 
 Suspected vulnerabilities go through the private process in
 [SECURITY.md](SECURITY.md), never a public issue.
