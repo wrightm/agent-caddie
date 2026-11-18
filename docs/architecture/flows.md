@@ -50,15 +50,15 @@ sequenceDiagram
 
     loop each turn
         H->>CLI: UserPromptSubmit {prompt}
-        CLI->>K: onPrompt(prompt.submitted)   # heuristics only; text discarded
+        CLI->>K: onPrompt(prompt.submitted), heuristics only, text discarded
         K->>ST: journal prompt_heuristics
-        CLI-->>H: {} or {"systemMessage": "<nudge>"}   # nudge decided from live stats
+        CLI-->>H: {} or {"systemMessage": "<nudge>"} (nudge decided from live stats)
         H->>CLI: Stop {stop_hook_active}
         CLI->>AD: parse(transcript, cursor) → new events (dedup by requestId)
         AD-->>K: CaddieEvent[] + cursor
         K->>K: aggregate (incremental) → LiveStats
         K->>ST: write live/<id>.json
-        CLI-->>H: {}   # async hook; output ignored
+        CLI-->>H: {} (async hook, output ignored)
     end
 
     opt subagent
@@ -70,15 +70,15 @@ sequenceDiagram
     opt compaction
         H->>CLI: PreCompact {trigger: auto|manual}
         CLI->>K: onCompactBefore → if idle > cacheTtl: Notification {audience: human}
-        CLI-->>H: {"systemMessage": "⚠ cache is cold; this compaction re-writes the prefix"}
+        CLI-->>H: {"systemMessage": "⚠ cache is cold, this compaction re-writes the prefix"}
         H->>CLI: PostCompact
-        CLI->>K: record compaction; reset prefix estimate
+        CLI->>K: record compaction, reset prefix estimate
     end
 
     H->>CLI: SessionEnd {reason}
     CLI->>K: onSessionEnd → journal session_end
     CLI->>FZ: spawn detached `caddie finalize <id>` (stdio ignored, unref)
-    CLI-->>H: {}   # returns in < 50 ms
+    CLI-->>H: {} (returns in under 50 ms)
     FZ->>FZ: see flow 2
 ```
 
@@ -161,12 +161,12 @@ sequenceDiagram
     participant RP as reporters
 
     U->>CLI: caddie report latest [--json|--md]
-    CLI->>ST: read index.jsonl → latest id; read sessions/<id>.json, <id>.findings.json
+    CLI->>ST: read index.jsonl → latest id, then read sessions/<id>.json, <id>.findings.json
     CLI->>RP: render(ReportInput) → stdout (json | markdown)
     CLI-->>U: report
 
     U->>CLI: caddie summary --since 7d [--json]
-    CLI->>ST: read index.jsonl filtered by time; load SessionRecords
+    CLI->>ST: read index.jsonl filtered by time, load SessionRecords
     CLI->>ST: read journal (rule_changed, config_changed, coach_spend) in window
     CLI->>IM: assess(history, changes) → TuningSummary
     CLI->>RP: renderSummary({sessions, findingsByRule, trends, tuning, coachSpend, packProvenance})
@@ -203,7 +203,7 @@ sequenceDiagram
 
     loop each later finalize
         P->>RE: resolve → rule with threshold 0.6, provenance 'user-override'
-        P->>RE: evaluate; also compute would-have-fired at the default 0.75
+        P->>RE: evaluate, and compute would-have-fired at the default 0.75
         P->>IM: assess(rule_changed events, history)
         IM-->>P: after ≥ minSamples: Finding config.rule-override-impact
     end
@@ -243,7 +243,7 @@ sequenceDiagram
     B->>ST: write bundles/<date>.tar.gz (temp + rename)
     B->>J: append bundle_created {path, counts, redacted: true}
     B-->>CLI: manifest {files[], sessionCount, dateRange, redactions applied, bytes}
-    CLI-->>U: prints manifest and the path; "Review before sharing. Caddie never uploads."
+    CLI-->>U: prints manifest and the path, then "Review before sharing. Caddie never uploads."
 ```
 
 Notes:
@@ -269,10 +269,32 @@ sequenceDiagram
 
     A->>CLI: caddie report latest --json
     CLI->>RP: render json
-    CLI-->>A: {"findingsSchemaVersion": 1, "session": {...}, "findings": [{"id": "cache.cold-compaction", "severity": "warn", "evidence": {...}, "action": {...}, "confidence": 0.9, "source": "derived", "sources": ["https://..."]}], "score": {...}, "packProvenance": "..."}
-    A->>A: branch on findings[].id / severity; e.g. post a comment, choose a cheaper model next time, or ignore
+    CLI-->>A: findings document (JSON, shape below)
+    A->>A: branch on findings[].id / severity, e.g. post a comment, choose a cheaper model next time, or ignore
     A->>CLI: caddie summary --since 24h --json
     CLI-->>A: aggregate view with the same schema family
+```
+
+The findings document returned in step 3 has this shape:
+
+```json
+{
+  "findingsSchemaVersion": 1,
+  "session": {},
+  "findings": [
+    {
+      "id": "cache.cold-compaction",
+      "severity": "warn",
+      "evidence": {},
+      "action": {},
+      "confidence": 0.9,
+      "source": "derived",
+      "sources": ["https://..."]
+    }
+  ],
+  "score": {},
+  "packProvenance": "..."
+}
 ```
 
 Contract points (`[ADR-0014 proposed]`): `findingsSchemaVersion` increments
@@ -301,7 +323,7 @@ sequenceDiagram
     else over budget and onExceeded = downgrade
         BG-->>C: {ok: true, downgradeTo: cheaper model from pack}
     end
-    C->>C: build redacted digest (no prompt text; rule ids, metrics, risk level)
+    C->>C: build redacted digest (no prompt text, only rule ids, metrics, risk level)
     C->>PR: complete({model, system: promptVersion, input: digest, reasoning, maxOutputTokens})
     PR-->>C: {text, usage, model}
     C->>BG: record(usage, usd via pricing)
@@ -324,7 +346,7 @@ sequenceDiagram
     U->>CLI: caddie pack import ./acme-pack.json | https://…/acme-pack.json
     CLI->>PS: fetch → document
     CLI->>PK: validate(document) → ok | findings
-    CLI->>ST: write pack/org.json; config.pack.source = <origin>
+    CLI->>ST: write pack/org.json, set config.pack.source = <origin>
     CLI->>J: append pack_loaded {layer: org, version, origin}
     U->>CLI: caddie pack set models.claude-opus-4-1.inputPerMTok 12.00
     CLI->>ST: write pack/overrides.json
