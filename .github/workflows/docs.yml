@@ -76,3 +76,18 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: "true"
         run: |
           CHROME_PATH="$(command -v google-chrome)" node scripts/check-mermaid.mjs
+
+  script-tests:
+    name: script tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The end-to-end tests drive the real Mermaid CLI, so they need Chrome.
+      - name: Test the check scripts
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: |
+          CHROME_PATH="$(command -v google-chrome)" node --test scripts/*.test.mjs

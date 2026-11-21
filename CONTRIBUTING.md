@@ -86,6 +86,13 @@ node scripts/check-front-matter.mjs
 node scripts/check-mermaid.mjs
 ```
 
+The check scripts have tests of their own, which also run on every pull
+request. Run them after changing anything under `scripts/`:
+
+```sh
+node --test scripts/*.test.mjs
+```
+
 GitHub shows an error box in place of a Mermaid diagram it cannot parse. In
 a sequence diagram, a semicolon ends the statement and `#` starts an entity
 code, so keep both out of message text.
