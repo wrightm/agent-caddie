@@ -22,26 +22,40 @@ listed per harness. `[ADR-0019, ADR-0025 proposed]`
 
 ### 1.1 State machine
 
-```text
-                 ┌──────────────────────────────────────────────────────────┐
-                 │                         SESSION                          │
-                 │                                                          │
- session.start ─▶│  idle ──prompt.submitted──▶ turn ──turn.end──▶ idle     │──session.end──▶ (final)
- session.resume ─▶│   ▲                                                      │
- session.clear ──▶│   │  (compaction and subagents happen inside a turn)      │        or no event:
-                 │   │                                                      │        orphan catch-up
-                 └───┼──────────────────────────────────────────────────────┘
-                     │
-   turn := prompt.submitted
-           ─▶ model.request ─▶ ( tool.before ─▶ tool.after )* ─▶ model.response   ─┐ repeats while the
-           ─▶ turn.end                                                             ◀┘ model keeps calling tools
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: session.start or session.resume
+    Idle --> Idle: session.clear
+    Idle --> Turn: prompt.submitted
+    Turn --> Idle: turn.end
+    Idle --> [*]: session.end or orphan catch-up
+    Turn --> [*]: session.end or orphan catch-up
 
-   inside a turn, optionally:
-     context.compact.before ─▶ context.compact.after        (harness summarises history)
-     subagent.start ─▶ [ model.request … model.response ]* ─▶ subagent.stop   (nested; own usage)
-   at any time:
-     model.switch · notification · harness_event (anything else, kept raw)
+    state Turn {
+        direction LR
+        [*] --> Requesting: model.request
+        Requesting --> Responded: model.response
+        Responded --> ToolRunning: tool.before
+        ToolRunning --> Responded: tool.after
+        Responded --> Requesting: model.request
+        Responded --> [*]: no tool call left
+    }
 ```
+
+The loop inside a turn repeats for as long as the model keeps calling tools.
+Some events are not states and so are not drawn:
+
+- **Compaction**, inside a turn or while idle:
+  `context.compact.before`, then `context.compact.after`. The harness
+  replaces the history with a summary.
+- **Subagents**, inside a turn: `subagent.start`, the subagent's own
+  `model.request` and `model.response` events, then `subagent.stop`. The
+  subagent's usage is counted separately from the parent's.
+- **At any time**: `model.switch`, `notification` and `harness_event`
+  (anything else, kept raw).
+- **Orphan catch-up**: a harness that never emits `session.end` leaves the
+  session open; Caddie finalizes it after the observation source has been
+  idle (see `session.end` in the table below).
 
 A **session** is one context window's life: from a start event to an end
 event. A **turn** is one human prompt and everything the harness does until

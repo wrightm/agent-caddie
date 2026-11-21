@@ -30,29 +30,38 @@ directly. Everything that touches the outside world does so through a **port**
 (a package outside the kernel). Tests replace every adapter with an in-memory
 double. `[ADR-0019 proposed]`
 
-```text
-                 driving side (things that call Caddie)
-   ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
-   │ harness hooks      │  │ transcripts / logs │  │ CLI, agents, CI    │
-   │ (Claude Code, …)   │  │ on disk            │  │                    │
-   └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘
-             │ HarnessEvents          │ ObservationSource      │ Commands
-   ══════════╪════════════════════════╪════════════════════════╪══════════ ports
-             ▼                        ▼                        ▼
-   ┌──────────────────────────────────────────────────────────────────────┐
-   │                               KERNEL                                 │
-   │  config · pack · pricing · aggregate · risk · rule engine · impact   │
-   │  score · pipeline · journal · bundle · coach (budget, prompt)        │
-   └──────────────────────────────────────────────────────────────────────┘
-             │              │               │              │           │
-   ══════════╪══════════════╪═══════════════╪══════════════╪═══════════╪═ ports
-             ▼ Store        ▼ Notifier      ▼ LlmProvider  ▼ PackSource ▼ Clock
-   ┌──────────────┐ ┌──────────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────┐
-   │ store-fs     │ │ claude-code hook │ │ anthropic    │ │ file/url │ │ real │
-   │ (~/.caddie)  │ │ stdout, statusln │ │ claude-cli   │ │          │ │      │
-   └──────────────┘ └──────────────────┘ └──────────────┘ └──────────┘ └──────┘
-                 driven side (things Caddie calls)
+```mermaid
+flowchart TB
+    subgraph driving["Driving side: things that call Caddie"]
+        hooks["Harness hooks<br/>(Claude Code and others)"]
+        logs["Transcripts and logs<br/>on disk"]
+        callers["CLI, agents, CI"]
+    end
+
+    subgraph kernel["Kernel"]
+        core["config · pack<br/>pricing · aggregate<br/>risk · rule engine<br/>impact · score<br/>pipeline · journal<br/>bundle · coach"]
+    end
+
+    subgraph driven["Driven side: things Caddie calls"]
+        store["store-fs<br/>(~/.caddie)"]
+        notifier["Claude Code hook stdout,<br/>status line"]
+        llm["anthropic,<br/>claude-cli"]
+        packsrc["file or URL"]
+        clock["real clock"]
+    end
+
+    hooks -->|HarnessEvents| core
+    logs -->|ObservationSource| core
+    callers -->|Commands| core
+    core -->|Store| store
+    core -->|Notifier| notifier
+    core -->|LlmProvider| llm
+    core -->|PackSource| packsrc
+    core -->|Clock| clock
 ```
+
+Every arrow is a port, labelled with its name. The boxes on the driving and
+driven sides are adapters.
 
 ### Ports
 
@@ -270,21 +279,25 @@ explicit:
 
 ## 4. Data the system owns
 
-```text
-~/.caddie/                      (override with CADDIE_HOME)
-  config.json                   user configuration
-  pack/overrides.json           user pack overrides; pack/org.json cached organisation pack
-  rules/overrides.json          rule overrides; rules/custom/*.json|*.cjs user rules
-  sessions/<id>.json            SessionRecord (survives the harness's own transcript cleanup)
-  sessions/<id>.findings.json   Finding[] for the session
-  reports/<date>-<id8>.md       Markdown report
-  live/<id>.json                LiveStats for sessions in progress (deleted on finalize)
-  index.jsonl                   one line per finalized session for summaries
-  lesson.json                   the next lesson to inject
-  journal/<yyyy-mm>.jsonl       Caddie actions and behaviour signals
-  bundles/<date>.tar.gz         shareable, redacted bundles
-  logs/hook.log                 hook diagnostics
-```
+Everything Caddie persists lives under `~/.caddie/` (override with
+`CADDIE_HOME`).
+
+| Path under `~/.caddie/` | Contents |
+|---|---|
+| `config.json` | User configuration |
+| `pack/overrides.json` | User pack overrides |
+| `pack/org.json` | Cached organisation pack |
+| `rules/overrides.json` | Rule overrides |
+| `rules/custom/*.json`, `rules/custom/*.cjs` | User rules |
+| `sessions/<id>.json` | `SessionRecord` (survives the harness's own transcript cleanup) |
+| `sessions/<id>.findings.json` | `Finding[]` for the session |
+| `reports/<date>-<id8>.md` | Markdown report |
+| `live/<id>.json` | `LiveStats` for sessions in progress (deleted on finalize) |
+| `index.jsonl` | One line per finalized session, for summaries |
+| `lesson.json` | The next lesson to inject |
+| `journal/<yyyy-mm>.jsonl` | Caddie actions and behaviour signals |
+| `bundles/<date>.tar.gz` | Shareable, redacted bundles |
+| `logs/hook.log` | Hook diagnostics |
 
 Every persisted document carries `schemaVersion`. The pack carries
 `packVersion` and `minCaddieVersion`. Findings JSON carries
