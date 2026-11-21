@@ -16,7 +16,7 @@ responsibility begins and ends. Flows between components are in
 [harness-lifecycles.md](harness-lifecycles.md); which features need which
 harness capabilities is in [capability-matrix.md](capability-matrix.md); typed
 interfaces will be in [interfaces.md](interfaces.md) (Phase 2). Decisions and their
-alternatives will be in [../adr/](../adr/README.md) (the index lands in
+alternatives will be in [docs/adr/](/docs/adr/README.md) (the index lands in
 Phase 3). Where a section depends on an
 ADR that is still `proposed`, it is tagged so nobody treats it as settled.
 

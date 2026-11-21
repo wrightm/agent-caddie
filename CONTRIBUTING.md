@@ -76,8 +76,10 @@ You can run the four locally from the repository root:
 # Markdown style
 npx markdownlint-cli2 "**/*.md"
 
-# Relative links and heading anchors (needs lychee installed)
-lychee --offline --include-fragments "**/*.md"
+# Links between files and heading anchors (needs lychee installed).
+# --root-dir resolves links that start at the repository root, such as
+# /docs/architecture/overview.md
+lychee --offline --include-fragments --root-dir "$PWD" "**/*.md"
 
 # Front matter of documents under docs/
 node scripts/check-front-matter.mjs
@@ -113,6 +115,10 @@ Two kinds of document live under `docs/` and are treated differently:
 - **Living documents** are the current truth, such as everything in
   `docs/architecture/`. They change in the same pull request as the thing
   they describe, and carry a `last-verified` date in their front matter.
+
+A link to a file in another folder starts at the repository root
+(`/docs/adr/README.md`), not with `../`, so the reader sees where the file
+lives. A link to a file in the same folder uses the bare file name.
 
 Every document under `docs/` starts with front matter; the front-matter
 check lists the fields each kind requires. A change to the architecture

@@ -74,7 +74,7 @@ and they do not coach.
 
 ## 5. Architecture
 
-The full description is in [overview.md](../architecture/overview.md). In
+The full description is in [overview.md](/docs/architecture/overview.md). In
 one paragraph: a harness adapter translates native hooks and transcripts into
 canonical lifecycle events; the kernel aggregates them into a `SessionRecord`,
 assesses risk, resolves the layered rule set (shipped pack → user overrides →
@@ -85,9 +85,9 @@ each action. A single CLI binary serves hooks, commands and the detached
 finalize. `[ADR-0002, 0004, 0017, 0019 proposed]`
 
 Canonical lifecycle, capability flags and the mapping for seven harnesses
-are in [harness-lifecycles.md](../architecture/harness-lifecycles.md).
-Feature gating is in [capability-matrix.md](../architecture/capability-matrix.md).
-Sequence diagrams are in [flows.md](../architecture/flows.md).
+are in [harness-lifecycles.md](/docs/architecture/harness-lifecycles.md).
+Feature gating is in [capability-matrix.md](/docs/architecture/capability-matrix.md).
+Sequence diagrams are in [flows.md](/docs/architecture/flows.md).
 
 ### 5.1 Decisions this spec depends on
 
@@ -218,7 +218,7 @@ store, journal or bundle by default. `[ADR-0010 proposed]`
 ## 7. Interfaces and data
 
 Typed interfaces are specified in Phase 2
-([interfaces.md](../architecture/interfaces.md)). The documents Caddie
+([interfaces.md](/docs/architecture/interfaces.md)). The documents Caddie
 persists and their schema versions are listed in overview.md §4. The JSON
 findings contract is the one external interface and is versioned by
 `findingsSchemaVersion`. `[ADR-0014 proposed]`
