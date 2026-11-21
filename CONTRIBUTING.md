@@ -115,6 +115,9 @@ Two kinds of document live under `docs/` and are treated differently:
 - **Living documents** are the current truth, such as everything in
   `docs/architecture/`. They change in the same pull request as the thing
   they describe, and carry a `last-verified` date in their front matter.
+  They describe the system, not the schedule: milestone labels (M1, M2)
+  belong in specs, plans and the roadmap. A living document says "planned"
+  for something that does not exist yet.
 
 A link to a file in another folder starts at the repository root
 (`/docs/adr/README.md`), not with `../`, so the reader sees where the file

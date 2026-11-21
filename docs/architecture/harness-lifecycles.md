@@ -142,16 +142,16 @@ the same day for the usage fields.
 | session.resume | `SessionStart` (`source: resume\|fork`) | O | input adds `seconds_since_last_response`, `context_tokens`, `prompt_cache_likely_expired`, `estimated_cache_write_usd` (v2.1.251+): a direct cold-cache signal |
 | session.clear | `SessionStart` (`source: clear`), paired `SessionEnd` (`reason: clear`) | O | |
 | prompt.submitted | `UserPromptSubmit` | O | `prompt` text available; Caddie keeps heuristics only; 30 s timeout |
-| model.request | none as a settings hook | D | from transcript `assistant` entries; mods API `turn.step` exists but Caddie does not use mods in M1 |
+| model.request | none as a settings hook | D | from transcript `assistant` entries; mods API `turn.step` exists but Caddie does not use mods |
 | model.response | none as a settings hook | D | transcript `assistant` entry: `requestId`, `message.model`, `message.usage` with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation.ephemeral_5m_input_tokens`/`ephemeral_1h_input_tokens`, `output_tokens_details.thinking_tokens`; plus `effort`, `perTurnEffort`, `isSidechain`, `agentId` on the entry; one line per content block (`apiBlockIndex`) with the usage repeated, so dedupe by `requestId` |
-| tool.before | `PreToolUse` | O | not subscribed in M1 (cost without benefit); tool calls are derived from transcript `tool_use` blocks |
-| tool.after | `PostToolUse` / `PostToolUseFailure` | O | not subscribed in M1; `tool_result` sizes derived from the transcript |
+| tool.before | `PreToolUse` | O | not subscribed (cost without benefit); tool calls are derived from transcript `tool_use` blocks |
+| tool.after | `PostToolUse` / `PostToolUseFailure` | O | not subscribed; `tool_result` sizes derived from the transcript |
 | turn.end | `Stop`; `StopFailure` on API error | O | async-capable; Caddie reads the transcript delta here |
 | context.compact.before | `PreCompact` (`trigger: manual\|auto`) | O | `systemMessage` is discarded on this event, so the cold-compaction warning is delivered on the next `UserPromptSubmit` or via the status line |
 | context.compact.after | `PostCompact` (+ `SessionStart source: compact`) | O | carries `compact_summary`; Caddie records length only |
 | subagent.start | `SubagentStart` (`agent_id`, `agent_type`) | O | |
 | subagent.stop | `SubagentStop` (`agent_transcript_path`) | O | nested transcript at `<session>/subagents/agent-<id>.jsonl` |
-| model.switch | `PostModelSwitch` (`from_model`, `to_model`, `prompt_cache_warm`, `cache_ttl`, `estimated_cache_write_usd`) | O | M2; derived from model id changes in M1 |
+| model.switch | `PostModelSwitch` (`from_model`, `to_model`, `prompt_cache_warm`, `cache_ttl`, `estimated_cache_write_usd`) | O | not subscribed yet; derived from model id changes until it is |
 | session.end | `SessionEnd` (`reason`) | O | 1.5 s budget: spawn the detached finalizer and return |
 | notification | `Notification` | O | not subscribed |
 
@@ -182,7 +182,7 @@ dashes>/<sessionId>.jsonl` (16-char hash on Windows), subagents under
 finalizer waits for size stability.
 
 Gaps: the mods API (`turn.step` with per-request usage, `turn.complete`)
-would give observed `model.response` events and is the natural M3 upgrade;
+would give observed `model.response` events and is the natural upgrade;
 whether a plugin can ship a default main `statusLine` is not documented
 (users wire `caddie statusline` themselves, or `--wrap` their existing
 command).
@@ -204,8 +204,8 @@ Sources: google-gemini/gemini-cli `docs/hooks/{index,reference,writing-hooks,bes
 | prompt.submitted | `BeforeAgent` (`prompt`) | O | can inject `additionalContext` for the turn |
 | model.request | `BeforeModel` (`llm_request` with `model`, messages, config) | O | the only harness in this table with a true per-request hook; Caddie observes only, never rewrites |
 | model.response | `AfterModel` (`llm_response.usageMetadata.totalTokenCount`) | O, D for detail | fires per streaming chunk, so coalesce per message; full `tokens {input, output, cached, thoughts, tool, total}` are in the chat record, so the adapter prefers the transcript (D) and uses the hook for timing |
-| tool.before | `BeforeTool` (`tool_name`, `tool_input`, `mcp_context`) | O | not subscribed in M1 |
-| tool.after | `AfterTool` (`tool_response`) | O | not subscribed in M1; sizes derived from the record |
+| tool.before | `BeforeTool` (`tool_name`, `tool_input`, `mcp_context`) | O | not subscribed |
+| tool.after | `AfterTool` (`tool_response`) | O | not subscribed; sizes derived from the record |
 | turn.end | `AfterAgent` (`prompt_response`, `stop_hook_active`) | O | |
 | context.compact.before | `PreCompress` (`trigger: auto\|manual`) | O | advisory, fired without awaiting |
 | context.compact.after | none | D | from the next model request's size drop, or the `chat_compression` telemetry event when telemetry is enabled |
@@ -273,7 +273,7 @@ the `caddie` CLI.
 | prompt.submitted | `ctx.session.hook("prompt")`; events `session.inbox.enqueued/delivered` | O | mutate-only hook; Caddie observes |
 | model.request | `session.hook("model.request")` / `"context"`; event `session.step.started` | O | |
 | model.response | event `session.step.ended {cost, tokens {input, output, reasoning, cache {read, write}}}` | O | **usage in the event**: the only harness here where hooks alone give full cost |
-| tool.before | `ctx.tool.hook("execute.before")`; event `session.tool.called` | O | not subscribed in M1 |
+| tool.before | `ctx.tool.hook("execute.before")`; event `session.tool.called` | O | not subscribed |
 | tool.after | `ctx.tool.hook("execute.after")`; events `session.tool.success/failed` | O | sizes from the event payload |
 | turn.end | event `session.execution.succeeded/failed/interrupted`; `session.status {type: idle}`; hook `experimental.idle` | O | `session.idle` is deprecated; the only pre-idle intercept is experimental |
 | context.compact.before | `session.hook("compaction")` before result; event `session.compaction.started {reason}` | O | |
@@ -289,8 +289,8 @@ cost), `hasTranscript` (SQLite, see below), `canNotifyHuman` and
 `hasStatusLine` (through the TUI plugin part only), `hasCompaction`,
 `hasSubagents`, `hasTurnBoundary`, `hasPromptEvent`, `hasModelInEvents`.
 `canInjectContext` is available through the `prompt` hook (mutating the
-user message) and `metadata.experimental.instructions`; M3 decides whether
-to use it. `hasClear` and `hasSessionEnd` are false.
+user message) and `metadata.experimental.instructions`; whether to use it is
+undecided. `hasClear` and `hasSessionEnd` are false.
 
 Packaging: an npm package with `package.json` `exports` for `./server` (the
 hooks) and `./tui` (footer segment and toasts), depending on
@@ -335,7 +335,7 @@ the kernel.
 | prompt.submitted | `input {text, source}` then `before_agent_start {prompt, systemPrompt}` | O | `before_agent_start` can return a `message` to inject context |
 | model.request | `context` → `context_with_system` → `before_provider_headers` → `before_provider_request {payload}` | O | |
 | model.response | `after_provider_response`, `provider_stream_event`, `message_start/update/end {message}` | O | `message_end` carries the assistant message with full `usage` |
-| tool.before | `tool_call {toolName, input, parentToolCallId?}` and `tool_execution_start` | O | not subscribed in M3 beyond `tool_execution_start` |
+| tool.before | `tool_call {toolName, input, parentToolCallId?}` and `tool_execution_start` | O | not subscribed beyond `tool_execution_start` |
 | tool.after | `tool_result` and `tool_execution_end {result, isError, durationMs}` | O | |
 | turn.end | `turn_end {turnIndex, message, toolResults}`; run-level `agent_end` → `agent_before_settle` → `agent_settled {aborted}` | O | canonical `turn.end` maps to `agent_settled` (idle); Pi's `turn_end` is per model step |
 | context.compact.before | `session_before_compact {reason: manual\|threshold\|overflow, preparation.tokensBefore}` | O | cancellable; can supply a custom summary |
@@ -399,7 +399,7 @@ Pi that fires a hook on every model request.
 | prompt.submitted | `UserPromptSubmit` | O | `prompt` text available; can block; heuristics only |
 | model.request | `PreModelRequest` | O | fires per attempt, including retries inside a turn; diagnostic only |
 | model.response | `PostModelRequest` (`status`, `error`, `token_usage`) | O | `token_usage` may be `null`; the rollout `TokenCount` event is the authoritative source |
-| tool.before | `PreToolUse` (+ `PermissionRequest` for approval gates) | O | not subscribed in M3; tool calls derived from `FunctionCall` rollout items |
+| tool.before | `PreToolUse` (+ `PermissionRequest` for approval gates) | O | not subscribed; tool calls derived from `FunctionCall` rollout items |
 | tool.after | `PostToolUse` | O | not subscribed |
 | turn.end | `Stop`; `Interrupt` for aborted turns | O | `Stop` output must be JSON; `{"continue": false}` is never sent |
 | context.compact.before | `PreCompact` (`trigger: manual\|auto`) | O | `systemMessage` is a UI warning, so the cold-compaction nudge can be shown here |
@@ -497,7 +497,7 @@ with an unpublished platform default, so Caddie sets them explicitly.
 `loop_limit` applies to `stop` and `subagentStop` follow-ups; Caddie emits
 none.
 
-Observation source: none in M3. The CLI's `--output-format stream-json`
+Observation source: none. The CLI's `--output-format stream-json`
 carries no usage fields, and the SDK `TokenUsage` is per run and SDK only.
 If the transcript format is later documented, `hasTranscript` flips on and
 the adapter gains a `parse` implementation without any kernel change.
@@ -751,7 +751,7 @@ O = observed by a native event, D = derived from the observation source,
 | context.compact.after | O | D | O | O | O | D | D |
 | subagent.start | O | — | O (`parentID`) | D | O | O | O |
 | subagent.stop | O | — | D | D | O | O | O |
-| model.switch | O (M2) | D | D | O | D | D | D |
+| model.switch | O (derived until subscribed) | D | D | O | D | D | D |
 | session.end | O | O | O (partial) | O | O | O | O |
 | notification | O | O | O (TUI plugin) | O | — | — | O |
 | Usage in hooks | — | O (total only) | O (`step.ended`) | O (`message_end`) | O (nullable) | — | — |
@@ -761,7 +761,7 @@ O = observed by a native event, D = derived from the observation source,
 | Sync budget | 1.5 s `SessionEnd` | 60 s default | event loop | event loop | 600 s default, 1 s `SessionEnd` | platform default | 30 s default |
 
 Reading the table: every harness supports the turn skeleton (prompt, tools,
-turn end), so the eight M1 rules that depend only on turn structure run
+turn end), so the eight rules that depend only on turn structure run
 everywhere. Cost-bearing rules run on six of seven harnesses today; Cursor
 joins when its transcript format is documented. Compaction-after is the
 most commonly derived event, which is why the cold-compaction rule accepts

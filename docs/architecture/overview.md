@@ -56,15 +56,15 @@ double. `[ADR-0019 proposed]`
 
 ### Ports
 
-| Port | Direction | Owner | Purpose | Implemented by (M1) |
+| Port | Direction | Owner | Purpose | Implemented by |
 |---|---|---|---|---|
 | `HarnessEvents` | inbound | kernel | Lifecycle events pushed by a harness hook, already mapped to the canonical lifecycle | `adapter-claude-code` |
 | `ObservationSource` | inbound | kernel | Pull-based, incremental reading of what the harness recorded (transcripts, logs), with a cursor | `adapter-claude-code` |
 | `Commands` | inbound | kernel | Operations a human, an agent or CI invokes: report, summary, rules, pack, bundle, eval, doctor | `cli` |
 | `Store` | outbound | kernel | Durable local state: sessions, findings, reports, live stats, journal, overrides, bundles | `store-fs` |
 | `Notifier` | outbound | kernel | Deliver a lesson, nudge or status segment to the human or the model through whatever surface the harness offers | `adapter-claude-code` (hook stdout, status line) |
-| `LlmProvider` | outbound | kernel | Run one coaching completion with model, reasoning and output limits; return text and usage | `provider-noop` (M1), `provider-anthropic`, `provider-claude-cli` (M2) |
-| `PackSource` | outbound | kernel | Fetch an organisation or updated knowledge pack from a file path or URL | `pack-source-file` (M1), `pack-source-http` (later, signed) |
+| `LlmProvider` | outbound | kernel | Run one coaching completion with model, reasoning and output limits; return text and usage | `provider-noop`; `provider-anthropic` and `provider-claude-cli` (planned) |
+| `PackSource` | outbound | kernel | Fetch an organisation or updated knowledge pack from a file path or URL | `pack-source-file`; `pack-source-http` (planned, signed) |
 | `Clock` | outbound | kernel | Current time, for gap and TTL arithmetic | real / fake |
 
 Rules of the hexagon, enforced in CI by dependency-cruiser `[ADR-0026 proposed]`:
@@ -81,7 +81,7 @@ From the outside in:
 1. **Harness integration** (`plugin/`, `packages/adapter-claude-code`): packaging that a harness installs, and the adapter that translates the harness's native hooks and transcripts into canonical events. One package per harness. `[ADR-0002, ADR-0017]`
 2. **Driving adapters** (`packages/cli`): the single executable (`caddie`) that receives hook invocations and CLI commands and calls the kernel. Also the composition root that wires concrete adapters to ports.
 3. **Kernel** (`packages/kernel`): the coaching logic, harness-agnostic. `[ADR-0004]`
-4. **Plugins to the kernel** (`packages/rules-core`, `packages/reporters`, sinks): units that the kernel calls through its five plugin contracts: adapter, collector, rule, reporter, sink. Statically registered in M1; a dynamic loader later uses the same contracts. `[ADR-0004]`
+4. **Plugins to the kernel** (`packages/rules-core`, `packages/reporters`, sinks): units that the kernel calls through its five plugin contracts: adapter, collector, rule, reporter, sink. Statically registered; a planned dynamic loader uses the same contracts. `[ADR-0004]`
 5. **Driven adapters**: filesystem store, notifiers, LLM providers, pack sources, clock.
 6. **Data**: the knowledge pack (`pack/`) and the user's local state (`~/.caddie/`), both versioned.
 
@@ -135,7 +135,7 @@ explicit:
 - **Purpose**: provide versioned facts the coach reasons with: models and pricing, constants (cache TTLs, auto-compact fraction, CLAUDE.md size guidance), rule defaults and thresholds, lessons, retired advice.
 - **Begins at**: the shipped `pack/pack.json`, an optional organisation pack and user overrides. **Ends at**: one resolved `KnowledgePack` with provenance (`shipped 2026.11.1 + org acme-2026-10 + 2 user overrides`). `[ADR-0013, ADR-0020 proposed]`
 - **Inputs**: pack JSON documents from `PackSource` and `Store`. **Outputs**: `KnowledgePack`, `PackProvenance`, validation findings.
-- **Owns**: the pack schema and validator; layering and precedence; alias lookup; the "unknown model" placeholder entry; the updater interface (`check()` returns `disabled` in M1).
+- **Owns**: the pack schema and validator; layering and precedence; alias lookup; the "unknown model" placeholder entry; the updater interface (`check()` returns `disabled` until the signed updater exists).
 - **Depends on**: `PackSource`, `Store`. **Must not know about**: rules' logic or pricing arithmetic.
 - **Failure behaviour**: an invalid organisation pack or override is rejected with a finding and the layer below is used; the shipped pack is always valid by CI invariant.
 - **Boundary tests**: validation; layering precedence; alias resolution; `minCaddieVersion` handling; provenance string.
@@ -252,7 +252,7 @@ explicit:
 
 ### 3.17 Sinks
 
-- **Purpose**: put `ReportOutput`s somewhere. M1: the local store (`sessions/<id>.json`, `<id>.findings.json`, `reports/<date>-<id8>.md`, `index.jsonl`, `lesson.json`, `live/<id>.json`). A future opt-in upload sink is a separate plugin and is the only place a network destination could ever appear. `[ADR-0003]`
+- **Purpose**: put `ReportOutput`s somewhere. The only sink is the local store (`sessions/<id>.json`, `<id>.findings.json`, `reports/<date>-<id8>.md`, `index.jsonl`, `lesson.json`, `live/<id>.json`). A future opt-in upload sink is a separate plugin and is the only place a network destination could ever appear. `[ADR-0003]`
 - **Boundary tests**: atomic writes (temp + rename); index append; live-file lifecycle.
 
 ### 3.18 Notifier adapter (Claude Code)
@@ -301,5 +301,5 @@ Every persisted document carries `schemaVersion`. The pack carries
 | Who decides whether to say it? | Risk gate (content) and config `nudges` (channel); the notifier only delivers. |
 | Who talks to a model? | Only the LLM coach, through `LlmProvider`, under `CoachBudget`. |
 | Who writes to disk? | Only the `Store` adapter; the kernel asks. |
-| Who touches the network? | Nothing in M1. Later: `PackSource` (signed pack) and an opt-in upload sink. |
+| Who touches the network? | Nothing by default. Planned: `PackSource` (signed pack) and an opt-in upload sink. |
 | Who can block the user? | Nobody. Hooks always exit 0 and never return a blocking decision. |

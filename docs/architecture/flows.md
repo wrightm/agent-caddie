@@ -424,7 +424,7 @@ identifiers and renames ship with an alias for two minor versions; exit code
 is 0 even when findings are severe (Caddie reports, it does not judge the
 agent's run).
 
-## 7. LLM coaching pass (M2, interface defined now)
+## 7. LLM coaching pass (planned, interface defined now)
 
 ```mermaid
 sequenceDiagram
@@ -509,8 +509,8 @@ Detail by step number:
 - **10**: returns the `KnowledgePack` and its provenance.
 - **11**: each value is shown with the layer it came from.
 
-`caddie pack update` checks the configured source for a newer version. In M1
-it works against a path or URL without signature verification and says so;
+`caddie pack update` checks the configured source for a newer version.
+It works against a path or URL without signature verification and says so;
 signing lands with the auto-updater (`[ADR-0003]`).
 
 ## 9. Error paths that every flow shares
