@@ -10,7 +10,8 @@ depends-on-adrs: [0002, 0007, 0009, 0011, 0014, 0019]
 
 How the components in [overview.md](overview.md) interact for each thing
 Caddie does. Diagrams are Mermaid sequence diagrams; names match the component
-sections in the overview. Hook names on the Claude Code side are the native
+sections in the overview. Arrow labels are kept short: the payloads, file
+names and conditions for each numbered step are listed under its diagram. Hook names on the Claude Code side are the native
 names; everything after the adapter is canonical (see
 [harness-lifecycles.md](harness-lifecycles.md)).
 
@@ -38,49 +39,79 @@ sequenceDiagram
     participant ST as store-fs (~/.caddie)
     participant FZ as caddie finalize (detached)
 
-    H->>RH: SessionStart {session_id, transcript_path, source}
-    RH->>CLI: node dist/caddie.cjs hook SessionStart
-    CLI->>AD: mapHookInput(stdin) → session.start | session.resume | session.clear
+    H->>RH: SessionStart
+    RH->>CLI: caddie hook SessionStart
+    CLI->>AD: mapHookInput(stdin)
     CLI->>K: onSessionStart(event)
     K->>ST: read lesson.json, config
-    K->>ST: write live/<id>.json (empty LiveStats)
+    K->>ST: write live/<id>.json
     K->>ST: journal lesson_injected
-    K-->>CLI: Notification {audience: model, text: lesson}
-    CLI-->>H: {"hookSpecificOutput": {"additionalContext": "<lesson ≤160 chars>"}}
+    K-->>CLI: Notification (lesson)
+    CLI-->>H: additionalContext (lesson)
 
     loop each turn
-        H->>CLI: UserPromptSubmit {prompt}
-        CLI->>K: onPrompt(prompt.submitted), heuristics only, text discarded
+        H->>CLI: UserPromptSubmit
+        CLI->>K: onPrompt (heuristics only)
         K->>ST: journal prompt_heuristics
-        CLI-->>H: {} or {"systemMessage": "<nudge>"} (nudge decided from live stats)
-        H->>CLI: Stop {stop_hook_active}
-        CLI->>AD: parse(transcript, cursor) → new events (dedup by requestId)
+        CLI-->>H: {} or systemMessage (nudge)
+        H->>CLI: Stop
+        CLI->>AD: parse(transcript, cursor)
         AD-->>K: CaddieEvent[] + cursor
-        K->>K: aggregate (incremental) → LiveStats
+        K->>K: aggregate into LiveStats
         K->>ST: write live/<id>.json
-        CLI-->>H: {} (async hook, output ignored)
+        CLI-->>H: {} (output ignored)
     end
 
     opt subagent
-        H->>CLI: SubagentStop {agent_id, agent_transcript_path}
-        CLI->>AD: parse subagent transcript → subagent.stop + nested events
+        H->>CLI: SubagentStop
+        CLI->>AD: parse subagent transcript
         CLI->>K: aggregate (incremental)
     end
 
     opt compaction
-        H->>CLI: PreCompact {trigger: auto|manual}
-        CLI->>K: onCompactBefore → if idle > cacheTtl: Notification {audience: human}
-        CLI-->>H: {"systemMessage": "⚠ cache is cold, this compaction re-writes the prefix"}
+        H->>CLI: PreCompact
+        CLI->>K: onCompactBefore
+        CLI-->>H: systemMessage (cold-cache warning)
         H->>CLI: PostCompact
-        CLI->>K: record compaction, reset prefix estimate
+        CLI->>K: record compaction
     end
 
-    H->>CLI: SessionEnd {reason}
-    CLI->>K: onSessionEnd → journal session_end
-    CLI->>FZ: spawn detached `caddie finalize <id>` (stdio ignored, unref)
-    CLI-->>H: {} (returns in under 50 ms)
-    FZ->>FZ: see flow 2
+    H->>CLI: SessionEnd
+    CLI->>K: onSessionEnd
+    CLI->>FZ: spawn caddie finalize
+    CLI-->>H: {} (under 50 ms)
+    FZ->>FZ: flow 2
 ```
+
+Detail by step number:
+
+- **1**: the payload carries `session_id`, `transcript_path` and `source`.
+- **2**: `run-hook.cmd` runs `node dist/caddie.cjs hook SessionStart`.
+- **3**: the adapter maps the payload to `session.start`, `session.resume`
+  or `session.clear`.
+- **6**: the file starts as an empty `LiveStats`.
+- **8, 9**: the kernel returns `Notification {audience: model, text: lesson}`
+  and the handler writes
+  `{"hookSpecificOutput": {"additionalContext": "<lesson ≤160 chars>"}}`.
+- **10, 11**: the event is `prompt.submitted`. Only heuristics are computed;
+  the prompt text is discarded.
+- **13**: `{}` or `{"systemMessage": "<nudge>"}`, decided from live stats.
+- **14**: the payload carries `stop_hook_active`.
+- **15**: returns the events appended since the cursor, deduplicated by
+  `requestId`.
+- **17**: aggregation is incremental.
+- **19**: `Stop` is an async hook, so the harness ignores the output.
+- **20, 21**: the payload carries `agent_id` and `agent_transcript_path`;
+  parsing yields `subagent.stop` plus the nested events.
+- **23 to 25**: the payload carries `trigger` (`auto` or `manual`). If the
+  session has been idle for longer than `cacheTtl`, the kernel returns
+  `Notification {audience: human}` and the handler writes
+  `{"systemMessage": "⚠ cache is cold; this compaction re-writes the prefix"}`.
+- **27**: also resets the prefix estimate.
+- **28, 29**: the payload carries `reason`; the kernel journals
+  `session_end`.
+- **30**: `caddie finalize <id>`, detached, with stdio ignored and the child
+  unreferenced.
 
 Notes:
 
@@ -89,7 +120,7 @@ Notes:
 - The `Stop` hook reads only the bytes appended since the stored cursor. If
   the transcript is large and the cursor is missing (first run after install),
   the handler reads at most the last 2 MB and marks live stats `partial`.
-- Nudges in step 12 come from `LiveStats` computed at the previous `Stop`;
+- Nudges in step 13 come from `LiveStats` computed at the previous `Stop`;
   they are one turn behind by design, which is fine for coaching.
 - If `SessionEnd` never arrives (the harness crashed, the terminal was
   killed), flow 2 is still triggered by orphan catch-up: the next hook of any
@@ -116,27 +147,55 @@ sequenceDiagram
     participant SK as sinks (store)
     participant J as journal
 
-    P->>P: acquire lock sessions/<id>.lock (skip if held)
-    P->>AD: locateSession(id) → SessionLocator
-    P->>AD: wait until transcript size stable for 2 s (max 30 s)
-    P->>AD: parse(loc, cursor=none) → all events, deduped
-    P->>AG: aggregate(events, pack, config) → SessionRecord
-    P->>RK: assess(SessionRecord) → RiskProfile
-    P->>RE: resolve(pack rules, overrides.json, custom/*) → ResolvedRule[] (+ validation findings)
-    P->>RE: evaluate(RuleContext{session, history, pack, config, clock})
-    RE->>RC: rule.evaluate(ctx) for each enabled rule (errors contained)
+    P->>P: acquire session lock
+    P->>AD: locateSession(id)
+    P->>AD: wait for a stable transcript
+    P->>AD: parse (all events)
+    P->>AG: aggregate → SessionRecord
+    P->>RK: assess → RiskProfile
+    P->>RE: resolve rules
+    P->>RE: evaluate(RuleContext)
+    RE->>RC: rule.evaluate(ctx)
     RC-->>RE: Finding[]
-    RE->>RE: would-have-fired accounting for disabled/relaxed rules
-    RE-->>P: Finding[] + RuleEvaluationStats
-    P->>RK: gate(findings, RiskProfile) → findings with 'cheaper' actions downgraded when risk ≥ high
-    P->>IM: assess(journal rule_changed events, history, ResolvedRule[].watches) → impact findings + TuningSummary
-    P->>SC: score(session, findings) → Score
-    P->>RP: render({session, findings, score, tuning, packProvenance, coachSpend}) → ReportOutput[]
-    P->>SK: write sessions/<id>.json, <id>.findings.json, reports/<date>-<id8>.md, index.jsonl, lesson.json
+    RE->>RE: would-have-fired accounting
+    RE-->>P: Finding[] + stats
+    P->>RK: gate(findings, RiskProfile)
+    P->>IM: assess rule changes
+    P->>SC: score → Score
+    P->>RP: render → ReportOutput[]
+    P->>SK: write session, findings, report
     P->>SK: delete live/<id>.json
-    P->>J: append finding_emitted (per finding), report_written, session_finalized
+    P->>J: append finalize events
     P->>P: release lock
 ```
+
+Detail by step number:
+
+- **1**: the lock is `sessions/<id>.lock`. If it is held, the pipeline
+  exits.
+- **2**: returns a `SessionLocator`.
+- **3**: waits until the transcript size has been stable for 2 s, for at
+  most 30 s.
+- **4**: `parse(loc, cursor=none)` returns all events, deduplicated.
+- **5**: `aggregate(events, pack, config)`.
+- **6**: `assess(SessionRecord)`.
+- **7**: `resolve(pack rules, overrides.json, custom/*)` returns
+  `ResolvedRule[]` plus validation findings.
+- **8**: `RuleContext{session, history, pack, config, clock}`.
+- **9**: once for each enabled rule. An error in one rule is contained.
+- **11**: for disabled and relaxed rules.
+- **12**: the stats are `RuleEvaluationStats`.
+- **13**: actions of kind `cheaper` are downgraded when risk is high or
+  above.
+- **14**: `assess(journal rule_changed events, history,
+  ResolvedRule[].watches)` returns impact findings and a `TuningSummary`.
+- **15**: `score(session, findings)`.
+- **16**: `render({session, findings, score, tuning, packProvenance,
+  coachSpend})`.
+- **17**: writes `sessions/<id>.json`, `<id>.findings.json`,
+  `reports/<date>-<id8>.md`, `index.jsonl` and `lesson.json`.
+- **19**: appends `finding_emitted` for each finding, `report_written` and
+  `session_finalized`.
 
 Notes:
 
@@ -160,18 +219,35 @@ sequenceDiagram
     participant IM as impact tracker
     participant RP as reporters
 
-    U->>CLI: caddie report latest [--json|--md]
-    CLI->>ST: read index.jsonl → latest id, then read sessions/<id>.json, <id>.findings.json
-    CLI->>RP: render(ReportInput) → stdout (json | markdown)
+    U->>CLI: caddie report latest
+    CLI->>ST: read index, session, findings
+    CLI->>RP: render(ReportInput)
     CLI-->>U: report
 
-    U->>CLI: caddie summary --since 7d [--json]
-    CLI->>ST: read index.jsonl filtered by time, load SessionRecords
-    CLI->>ST: read journal (rule_changed, config_changed, coach_spend) in window
-    CLI->>IM: assess(history, changes) → TuningSummary
-    CLI->>RP: renderSummary({sessions, findingsByRule, trends, tuning, coachSpend, packProvenance})
-    CLI-->>U: totals, trends, top findings, "what your tuning did", coaching cost
+    U->>CLI: caddie summary --since 7d
+    CLI->>ST: read sessions in window
+    CLI->>ST: read journal in window
+    CLI->>IM: assess(history, changes)
+    CLI->>RP: renderSummary(input)
+    CLI-->>U: summary
 ```
+
+Detail by step number:
+
+- **1**: accepts `--json` or `--md`.
+- **2**: `index.jsonl` gives the latest id, then `sessions/<id>.json` and
+  `<id>.findings.json` are read.
+- **3**: writes JSON or Markdown to stdout.
+- **5**: accepts `--json`.
+- **6**: reads `index.jsonl` filtered by time and loads the matching
+  `SessionRecord`s.
+- **7**: reads the `rule_changed`, `config_changed` and `coach_spend`
+  events.
+- **8**: returns a `TuningSummary`.
+- **9**: `renderSummary({sessions, findingsByRule, trends, tuning,
+  coachSpend, packProvenance})`.
+- **10**: totals, trends, top findings, "what your tuning did" and the
+  coaching cost.
 
 Notes:
 
@@ -195,27 +271,49 @@ sequenceDiagram
     participant P as pipeline (later sessions)
     participant IM as impact tracker
 
-    U->>CLI: caddie rules set cache.low-hit-rate threshold=0.6
-    CLI->>RE: validate against rule schema and defaults
-    CLI->>ST: write rules/overrides.json {cache.low-hit-rate: {threshold: 0.6}}
-    CLI->>J: append rule_changed {ruleId, before: {threshold: 0.75}, after: {threshold: 0.6}, watches: [cache.hitRate, cost.perSession]}
-    CLI-->>U: "Applied. Caddie will report the effect on cache hit rate and cost after ≥5 sessions."
+    U->>CLI: caddie rules set
+    CLI->>RE: validate against schema
+    CLI->>ST: write rules/overrides.json
+    CLI->>J: append rule_changed
+    CLI-->>U: applied
 
     loop each later finalize
-        P->>RE: resolve → rule with threshold 0.6, provenance 'user-override'
-        P->>RE: evaluate, and compute would-have-fired at the default 0.75
-        P->>IM: assess(rule_changed events, history)
-        IM-->>P: after ≥ minSamples: Finding config.rule-override-impact
+        P->>RE: resolve (override applied)
+        P->>RE: evaluate
+        P->>IM: assess(rule_changed, history)
+        IM-->>P: impact finding
     end
 
-    Note over IM: "Since you relaxed cache.low-hit-rate (6 sessions ago): cache hit rate 84% → 71%, cost/session +18%. The default would have fired 4 times."
-
-    U->>CLI: caddie rules reset cache.low-hit-rate
-    CLI->>ST: remove entry from overrides.json
-    CLI->>J: append rule_changed {before: {threshold: 0.6}, after: default}
-    U->>CLI: caddie rules explain cache.low-hit-rate
-    CLI-->>U: current value, provenance, defaults, watches, impact history, sources
+    U->>CLI: caddie rules reset
+    CLI->>ST: remove override
+    CLI->>J: append rule_changed
+    U->>CLI: caddie rules explain
+    CLI-->>U: explanation
 ```
+
+Detail by step number:
+
+- **1**: for example
+  `caddie rules set cache.low-hit-rate threshold=0.6`.
+- **2**: validates against the rule's schema and defaults.
+- **3**: writes `{cache.low-hit-rate: {threshold: 0.6}}`.
+- **4**: `rule_changed {ruleId, before: {threshold: 0.75}, after:
+  {threshold: 0.6}, watches: [cache.hitRate, cost.perSession]}`.
+- **5**: "Applied. Caddie will report the effect on cache hit rate and cost
+  after ≥5 sessions."
+- **6**: the rule resolves with threshold 0.6 and provenance
+  `user-override`.
+- **7**: also computes whether the rule would have fired at the default,
+  0.75.
+- **9**: once at least `minSamples` sessions exist, the finding
+  `config.rule-override-impact`. For example: "Since you relaxed
+  cache.low-hit-rate (6 sessions ago): cache hit rate 84% → 71%,
+  cost/session +18%. The default would have fired 4 times."
+- **10, 11**: `caddie rules reset cache.low-hit-rate` removes the entry
+  from `overrides.json`.
+- **12**: `rule_changed {before: {threshold: 0.6}, after: default}`.
+- **13, 14**: `caddie rules explain cache.low-hit-rate` prints the current
+  value, provenance, defaults, watches, impact history and sources.
 
 Variants on the same flow:
 
@@ -236,15 +334,31 @@ sequenceDiagram
     participant R as redactor
     participant J as journal
 
-    U->>CLI: caddie bundle [--since 30d] [--include-reports] [--no-redact]
+    U->>CLI: caddie bundle
     CLI->>B: create(options)
-    B->>ST: read sessions, findings, journal, config.json, rules/overrides.json, custom rules (names + hashes only), pack provenance, doctor output
-    B->>R: redact(all documents) — paths → <path:hash8>, usernames, hostnames, prompt text (always, unless storePromptText and --no-redact)
-    B->>ST: write bundles/<date>.tar.gz (temp + rename)
-    B->>J: append bundle_created {path, counts, redacted: true}
-    B-->>CLI: manifest {files[], sessionCount, dateRange, redactions applied, bytes}
-    CLI-->>U: prints manifest and the path, then "Review before sharing. Caddie never uploads."
+    B->>ST: read documents
+    B->>R: redact(all documents)
+    B->>ST: write bundle archive
+    B->>J: append bundle_created
+    B-->>CLI: manifest
+    CLI-->>U: manifest and path
 ```
+
+Detail by step number:
+
+- **1**: options are `--since 30d`, `--include-reports` and `--no-redact`.
+- **3**: reads sessions, findings, the journal, `config.json`,
+  `rules/overrides.json`, custom rules (names and hashes only), pack
+  provenance and doctor output.
+- **4**: paths become `<path:hash8>`; usernames and hostnames are replaced.
+  Prompt text is always removed, unless `storePromptText` is set and
+  `--no-redact` is passed.
+- **5**: writes `bundles/<date>.tar.gz` through a temporary file and a
+  rename.
+- **6**: `bundle_created {path, counts, redacted: true}`.
+- **7**: `{files[], sessionCount, dateRange, redactions applied, bytes}`.
+- **8**: prints the manifest and the path, then "Review before sharing.
+  Caddie never uploads."
 
 Notes:
 
@@ -269,11 +383,18 @@ sequenceDiagram
 
     A->>CLI: caddie report latest --json
     CLI->>RP: render json
-    CLI-->>A: findings document (JSON, shape below)
-    A->>A: branch on findings[].id / severity, e.g. post a comment, choose a cheaper model next time, or ignore
+    CLI-->>A: findings document (JSON)
+    A->>A: branch on id and severity
     A->>CLI: caddie summary --since 24h --json
-    CLI-->>A: aggregate view with the same schema family
+    CLI-->>A: aggregate view
 ```
+
+Detail by step number:
+
+- **4**: the agent branches on `findings[].id` and `severity`: for
+  example it posts a comment, chooses a cheaper model next time, or does
+  nothing.
+- **6**: the aggregate view uses the same schema family.
 
 The findings document returned in step 3 has this shape:
 
@@ -312,24 +433,42 @@ sequenceDiagram
     participant C as kernel/coach
     participant BG as CoachBudget
     participant J as journal
-    participant PR as LlmProvider (anthropic | claude-cli | noop)
+    participant PR as LlmProvider
 
-    P->>C: coach(session, findings, config.llmCoach)
-    C->>C: skip if disabled, or session cost < minSessionCostUsd, or trigger mismatch
-    C->>BG: allow(estimateUsd) — windows from journal coach_spend events
-    alt over budget and onExceeded = skip
+    P->>C: coach(session, findings, config)
+    C->>C: check whether to skip
+    C->>BG: allow(estimateUsd)
+    alt over budget, onExceeded = skip
         BG-->>C: {ok: false, reason}
-        C->>J: append coach_skipped {reason}
-    else over budget and onExceeded = downgrade
-        BG-->>C: {ok: true, downgradeTo: cheaper model from pack}
+        C->>J: append coach_skipped
+    else over budget, onExceeded = downgrade
+        BG-->>C: {ok: true, downgradeTo}
     end
-    C->>C: build redacted digest (no prompt text, only rule ids, metrics, risk level)
-    C->>PR: complete({model, system: promptVersion, input: digest, reasoning, maxOutputTokens})
+    C->>C: build redacted digest
+    C->>PR: complete(request)
     PR-->>C: {text, usage, model}
-    C->>BG: record(usage, usd via pricing)
-    C->>J: append coach_spend {model, usd, promptVersion, reasoning}
-    C-->>P: Finding[] {category: coaching, confidence < 1, model, promptVersion}
+    C->>BG: record(usage, usd)
+    C->>J: append coach_spend
+    C-->>P: coaching Finding[]
 ```
+
+Detail by step number:
+
+- **1**: the config is `config.llmCoach`.
+- **2**: skips if coaching is disabled, the session cost is below
+  `minSessionCostUsd`, or the trigger does not match.
+- **3**: budget windows are computed from the journal's `coach_spend`
+  events.
+- **5**: `coach_skipped {reason}`.
+- **6**: `downgradeTo` names a cheaper model from the pack.
+- **7**: the digest holds rule ids, metrics and the risk level, and no
+  prompt text.
+- **8**: `complete({model, system: promptVersion, input: digest, reasoning,
+  maxOutputTokens})`. Providers are `anthropic`, `claude-cli` and `noop`.
+- **10**: the cost in USD comes from the pack's pricing.
+- **11**: `coach_spend {model, usd, promptVersion, reasoning}`.
+- **12**: `Finding[] {category: coaching, confidence < 1, model,
+  promptVersion}`.
 
 ## 8. Pack update and organisation packs
 
@@ -339,22 +478,36 @@ sequenceDiagram
     participant U as human / company admin
     participant CLI as caddie pack
     participant PK as kernel/pack
-    participant PS as PackSource (file | url)
+    participant PS as PackSource
     participant ST as store
     participant J as journal
 
-    U->>CLI: caddie pack import ./acme-pack.json | https://…/acme-pack.json
-    CLI->>PS: fetch → document
-    CLI->>PK: validate(document) → ok | findings
-    CLI->>ST: write pack/org.json, set config.pack.source = <origin>
-    CLI->>J: append pack_loaded {layer: org, version, origin}
-    U->>CLI: caddie pack set models.claude-opus-4-1.inputPerMTok 12.00
+    U->>CLI: caddie pack import
+    CLI->>PS: fetch document
+    CLI->>PK: validate(document)
+    CLI->>ST: write pack/org.json
+    CLI->>J: append pack_loaded
+    U->>CLI: caddie pack set
     CLI->>ST: write pack/overrides.json
-    CLI->>J: append pack_changed {path, before, after}
-    U->>CLI: caddie pack show | diff | export | reset
-    CLI->>PK: resolve(shipped, org, overrides) → KnowledgePack + provenance
-    CLI-->>U: resolved values with the layer each came from
+    CLI->>J: append pack_changed
+    U->>CLI: caddie pack show
+    CLI->>PK: resolve(shipped, org, overrides)
+    CLI-->>U: resolved values
 ```
+
+Detail by step number:
+
+- **1, 2**: the source is a file (`caddie pack import ./acme-pack.json`)
+  or a URL (`https://…/acme-pack.json`).
+- **3**: returns ok or findings.
+- **4**: also sets `config.pack.source` to the origin.
+- **5**: `pack_loaded {layer: org, version, origin}`.
+- **6**: for example
+  `caddie pack set models.claude-opus-4-1.inputPerMTok 12.00`.
+- **8**: `pack_changed {path, before, after}`.
+- **9**: `show`, `diff`, `export` and `reset` all resolve the pack first.
+- **10**: returns the `KnowledgePack` and its provenance.
+- **11**: each value is shown with the layer it came from.
 
 `caddie pack update` checks the configured source for a newer version. In M1
 it works against a path or URL without signature verification and says so;
