@@ -11,11 +11,19 @@
 // `key: value` lines, so no YAML parser is needed.
 //
 // Usage: node scripts/check-front-matter.mjs [docs-dir]
+// Tests: node --test scripts/*.test.mjs
 
-import { readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** True for a real calendar date written as YYYY-MM-DD. */
+export function isIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
 const SPEC_FILENAME = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md$/;
 const SPEC_STATUSES = ["draft", "approved", "implemented", "superseded"];
 
@@ -40,9 +48,9 @@ function markdownFiles(dir) {
   });
 }
 
-/** Returns the front-matter fields, or null when the file has no front matter. */
-function parseFrontMatter(text) {
-  const lines = text.split(/\r?\n/);
+/** Returns the front-matter fields, or null when the text has no front matter. */
+export function parseFrontMatter(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
   if (lines[0] !== "---") return null;
   const end = lines.indexOf("---", 1);
   if (end === -1) return null;
@@ -54,9 +62,13 @@ function parseFrontMatter(text) {
   return fields;
 }
 
-function check(file, docsDir) {
-  const parts = relative(docsDir, file).split(sep);
-  const name = basename(file);
+/**
+ * Returns the problems with one document. `path` is relative to the docs
+ * directory and uses forward slashes, for example "specs/2026-01-02-x.md".
+ */
+export function checkDocument(path, text) {
+  const parts = path.split("/");
+  const name = parts[parts.length - 1];
   if (name === "README.md" || parts[0] === "adr") return [];
 
   const kind = parts[0] === "specs" ? "spec" : "living";
@@ -67,7 +79,7 @@ function check(file, docsDir) {
     errors.push("spec filename must be YYYY-MM-DD-<topic>.md");
   }
 
-  const fields = parseFrontMatter(readFileSync(file, "utf8"));
+  const fields = parseFrontMatter(text);
   if (fields === null) return [...errors, "missing front matter (file must start with a --- block)"];
 
   for (const key of schema.required) {
@@ -77,7 +89,7 @@ function check(file, docsDir) {
     errors.push(`status "${fields.status}" must be one of: ${schema.statuses.join(", ")}`);
   }
   for (const key of schema.dates) {
-    if (fields[key] && !ISO_DATE.test(fields[key])) {
+    if (fields[key] && !isIsoDate(fields[key])) {
       errors.push(`"${key}" must be an ISO date (YYYY-MM-DD), got "${fields[key]}"`);
     }
   }
@@ -87,26 +99,33 @@ function check(file, docsDir) {
   return errors;
 }
 
-const docsDir = process.argv[2] ?? "docs";
-let files;
-try {
-  files = markdownFiles(docsDir);
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
-  console.log(`front matter: no ${docsDir}/ directory, nothing to check`);
-  process.exit(0);
-}
-
-let failures = 0;
-for (const file of files.sort()) {
-  for (const message of check(file, docsDir)) {
-    console.error(`${file}: ${message}`);
-    failures += 1;
+function main(docsDir) {
+  let files;
+  try {
+    files = markdownFiles(docsDir);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    console.log(`front matter: no ${docsDir}/ directory, nothing to check`);
+    return 0;
   }
+
+  let failures = 0;
+  for (const file of files.sort()) {
+    const path = relative(docsDir, file).split(sep).join("/");
+    for (const message of checkDocument(path, readFileSync(file, "utf8"))) {
+      console.error(`${file}: ${message}`);
+      failures += 1;
+    }
+  }
+
+  if (failures > 0) {
+    console.error(`front matter: ${failures} problem(s) in ${files.length} file(s)`);
+    return 1;
+  }
+  console.log(`front matter: ${files.length} file(s) checked, all valid`);
+  return 0;
 }
 
-if (failures > 0) {
-  console.error(`front matter: ${failures} problem(s) in ${files.length} file(s)`);
-  process.exit(1);
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(main(process.argv[2] ?? "docs"));
 }
-console.log(`front matter: ${files.length} file(s) checked, all valid`);
