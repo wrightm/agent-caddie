@@ -8,7 +8,8 @@ on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: pull-request-${{ github.event.pull_request.number }}
@@ -20,13 +21,10 @@ jobs:
     if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Require "Part of #N" or "Closes #N" in the description
         env:
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          if printf '%s' "$BODY" | grep -Eiq '(part of|closes|fixes|resolves) #[0-9]+'; then
-            echo "The description names an issue."
-          else
-            echo "::error::The description names no issue. Add \"Part of #N\", or \"Closes #N\" if this pull request finishes the issue. See CONTRIBUTING.md, \"Linking work\"."
-            exit 1
-          fi
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-linked-issue.mjs

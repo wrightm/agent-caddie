@@ -86,8 +86,11 @@ node scripts/check-front-matter.mjs
 node scripts/check-mermaid.mjs
 ```
 
-The check scripts have tests of their own, which also run on every pull
-request. Run them after changing anything under `scripts/`:
+These checks guard everything else, so the scripts behind them are tested
+too. Every script under `scripts/` has a `<name>.test.mjs` beside it, and
+the tests run on every pull request. A new script comes with its tests, and
+a change in behaviour comes with a test that fails without it. Run them
+after changing anything under `scripts/`:
 
 ```sh
 node --test scripts/*.test.mjs
