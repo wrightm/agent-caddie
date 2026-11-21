@@ -1,7 +1,7 @@
 name: docs
 
-# Checks every Markdown file: style (markdownlint), links (lychee) and the
-# front matter of documents under docs/.
+# Checks every Markdown file: style (markdownlint), links (lychee), the
+# front matter of documents under docs/, and that Mermaid diagrams parse.
 #
 # Pull requests and pushes check relative links and heading anchors only, so
 # the result depends on the repository alone. External URLs are checked on a
@@ -61,3 +61,18 @@ jobs:
         with:
           persist-credentials: false
       - run: node scripts/check-front-matter.mjs
+
+  mermaid:
+    name: mermaid
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Use the runner's Chrome rather than downloading one for Puppeteer.
+      - name: Check that every Mermaid diagram renders
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: |
+          CHROME_PATH="$(command -v google-chrome)" node scripts/check-mermaid.mjs
