@@ -43,7 +43,7 @@ finding's `confidence` is reduced when its evidence is `derived`.
 | Cost estimate per session | `hasTranscript` or `hasUsageInHooks`, `hasModelInEvents` | cost shown as "unavailable", never guessed; findings that need cost are suppressed with reason `no-usage` | pricing, aggregate |
 | Cache hit rate and `cache.low-hit-rate` | usage with cache fields (`hasTranscript` with cache fields, or `hasUsageInHooks` with cache fields) | rule disabled with reason `no-cache-usage`; report notes the harness does not expose cache data | rules-core |
 | `cache.cold-compaction` warning at compaction time | `hasCompaction` (observed) and `canNotifyHuman` | if compaction is only derived: post-hoc finding in the report; if there is no human channel: finding only | rules-core, notifier |
-| Standing-prefix estimate and `prefix.large-standing-prefix` | cache-write size of the first request after start, clear or compaction | if `hasClear` is false, segments after a clear are attributed to the same session and the estimate is marked `approximate` | aggregate |
+| Standing-prefix estimate and `prefix.large-standing-prefix` | cache-write size of the first request after start, clear or compaction | if `hasClear` is false, the adapter derives the clear from a drop in context size when usage per request is available (`hasTranscript` or `hasUsageInHooks`); otherwise the context windows either side of a clear are reported as one session and the estimate is flagged `approximate` | aggregate |
 | `effort.high-on-simple-turns` | `hasModelInEvents` plus an effort or reasoning signal in events | rule disabled with reason `no-effort-signal` | rules-core |
 | `subagents.main-model` | `hasSubagents` and `hasModelInEvents` | rule disabled; summary notes subagent usage is invisible on this harness | rules-core |
 | `tools.output-bloat` | tool results with sizes (`hasTranscript`) | rule disabled | rules-core |
@@ -54,7 +54,7 @@ finding's `confidence` is reduced when its evidence is `derived`.
 | Status-line segment | `hasStatusLine` and live stats (`hasTurnBoundary`) | `caddie statusline` still works when called manually; live stats refresh on session end only | reporters, cli |
 | Live stats (`live/<id>.json`) | `hasTurnBoundary` | written once at session end | aggregate, pipeline |
 | Detached finalize at session end | `hasSessionEnd` | orphan catch-up finalizes the session when its transcript has been idle for `orphanAfterMinutes`, triggered by the next hook or CLI call | pipeline |
-| Session resume detection | `session.resume` observed or derived | a resumed session is treated as new; totals may double-count the resumed prefix, flagged `resumeUnknown` | adapter, aggregate |
+| Session resume detection | `session.resume` observed or derived | derived from a known session id or earlier messages in the observation source; with neither, a resumed session is treated as new, its standing-prefix estimate includes the earlier conversation, and the record is flagged `resumeUnknown` | adapter, aggregate |
 | Risk gate | prompt heuristics, paths touched or cwd | with only cwd available the gate is coarser and the risk level is marked `low-evidence` | risk |
 | Rule impact tracker | stored history (always available) | none; harness-independent | impact |
 | Journal, bundle, overrides, pack CLI | none | none; harness-independent | kernel, cli |

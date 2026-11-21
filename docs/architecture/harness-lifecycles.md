@@ -65,6 +65,11 @@ between requests. Compaction rewrites the history inside the same session.
 Subagents are nested sessions with their own requests, started by a tool
 call and ended before the parent turn ends.
 
+The **standing prefix** is the content the harness sends on every request
+before any conversation: the system prompt, tool definitions, instruction
+files and MCP schemas. Caddie measures its size from the first request after
+a start, a clear or a compaction, because that request holds little else.
+
 ### 1.2 Event semantics
 
 For each event: what it means, what triggers it, what precedes and follows
@@ -75,8 +80,8 @@ observed or derived.
 | Event | Meaning | Triggered by | Precedes / follows | Required? | If never emitted |
 |---|---|---|---|---|---|
 | `session.start` | A new context window exists | harness start-up | first event of a session; followed by idle | yes (derived if needed) | derived from the first transcript entry or first hook of an unknown session id |
-| `session.resume` | An earlier session's context is loaded into a new process | `--resume`, picker | behaves as `session.start` with `resumedFrom` | no | a resumed session looks like a new one; prefix cost may double-count, record flagged `resumeUnknown` |
-| `session.clear` | The context was reset but the process continues | `/clear` | ends the previous segment, starts a new one with the same process id | no | segments after a clear are counted in one session; standing-prefix estimate marked `approximate` |
+| `session.resume` | An earlier session's context is loaded into a new process | `--resume`, picker | behaves as `session.start` with `resumedFrom` | no | derived when the session id already has a stored record, or the observation source holds messages older than the first event (§1.3). With neither signal the session is treated as new and the record is flagged `resumeUnknown` |
+| `session.clear` | The context was reset but the process continues | `/clear` | ends the previous segment, starts a new one with the same process id | no | derived when the context size falls back to the standing prefix with no compaction (§1.3). Without usage per request the clear goes unseen: the context windows either side of it are reported as one session, and its standing-prefix size is flagged `approximate` |
 | `prompt.submitted` | The human asked for something | user input, scheduled task, cross-session message | follows idle; starts a turn; followed by `model.request` | yes (derived from user messages in the transcript if no hook) | prompt heuristics and `prompting.*` rules disabled; turns segmented by `turn.end` or by gaps |
 | `model.request` | A request was sent to a model | the agent loop | follows `prompt.submitted` or `tool.after`; followed by `model.response` | yes (derived is normal) | **no cost at all**; Caddie reports cost unavailable and disables cost-based rules |
 | `model.response` | The model answered; carries usage, model id, stop reason | the API | follows `model.request`; followed by `tool.before` or `turn.end` | yes (derived is normal) | as above |
@@ -105,6 +110,47 @@ Rules never test `source`. The rule engine lowers `confidence` on a finding
 whose evidence is derived (by a per-rule factor, default 0.85), and reports
 say "reconstructed from the transcript" next to such findings. This keeps
 the kernel honest without forking logic per harness.
+
+#### Deriving `session.resume` and `session.clear`
+
+Five of the seven harnesses in §2 report both events natively. For the
+others, and for any session where the hooks did not fire (see §1.4) or that
+Caddie reads from logs alone, the adapter derives them.
+
+**Resume.** The adapter emits a derived `session.resume` when either signal
+is present at the first event it sees for a process:
+
+1. **Known id**: the store already holds a `SessionRecord` or live stats for
+   that session id. `resumedFrom` is the same id.
+2. **Earlier messages**: the observation source holds conversation messages
+   older than that first event.
+
+Usage alone does not show a resume. The first request of a new session also
+reads the standing prefix from the cache when another session wrote it
+recently, so cached tokens on a first request prove nothing. When neither
+signal is present (hooks only, and an id the store has never seen), the
+session is treated as new and flagged `resumeUnknown`: the earlier
+conversation is then counted as part of its standing prefix, which makes the
+estimate too high.
+
+**Clear.** The adapter emits a derived `session.clear` between two
+consecutive requests of the main agent when all three hold:
+
+1. the context size (input, cache-read and cache-write tokens together) of
+   the second request is less than half that of the first;
+2. the second request is within 20% of the standing-prefix size plus the new
+   prompt;
+3. no `context.compact.*` event or transcript compaction marker lies between
+   them.
+
+A drop that lands well above the standing prefix is not a clear: compaction
+leaves a summary behind, a clear leaves nothing. The two thresholds are
+starting values; the adapter fixtures tune them. The rule needs usage per
+request, so a harness without it (Cursor) cannot have clears derived. An
+unseen clear joins two context windows into one session. The standing prefix
+is then measured only once, at the start, and context growth appears to
+reset for no reason, so the record's standing-prefix size is flagged
+`approximate` and reports say so.
 
 ### 1.4 Bleed: when harnesses collapse or split events
 
@@ -282,7 +328,7 @@ the `caddie` CLI.
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
 | session.start | event `session.created` (`parentID` absent) | O | plugin `setup()` runs at load, not per session; observed via `ctx.event.subscribe` |
-| session.resume | none | — | sessions are server-owned and reopened by id; `session.viewed` is the nearest signal; treated as `session.start` with `resumeUnknown` |
+| session.resume | none | D | sessions are server-owned and reopened by id, and `session.viewed` is the nearest native signal. Derived by known id or earlier messages in the history database (§1.3) |
 | session.clear | none | — | no clear concept; a new session is `session.created` |
 | prompt.submitted | `ctx.session.hook("prompt")`; events `session.inbox.enqueued/delivered` | O | mutate-only hook; Caddie observes |
 | model.request | `session.hook("model.request")` / `"context"`; event `session.step.started` | O | |
@@ -474,8 +520,8 @@ transcript format, and no token usage anywhere outside the SDK.
 | Canonical | Native | O/D | Notes |
 |---|---|---|---|
 | session.start | `sessionStart` (`session_id`, `composer_mode`, `is_background_agent`) | O | fire-and-forget; `additional_context` and `env` outputs; not fired in cloud agents |
-| session.resume | none | — | `sessionStart` fires only on new conversations |
-| session.clear | none | — | |
+| session.resume | none | — | `sessionStart` fires only on new conversations. Derivation by known id (§1.3) applies if later hooks of a reopened conversation carry the original `session_id`, which is not verified; otherwise `resumeUnknown` |
+| session.clear | none | — | no usage per request, so a clear cannot be derived (§1.3) |
 | prompt.submitted | `beforeSubmitPrompt` (`prompt`, `attachments`) | O | blocking; can refuse submission; heuristics only |
 | model.request | none | — | |
 | model.response | `afterAgentResponse` (`text`), `afterAgentThought` (`text`, `duration_ms`) | O | per assistant message, not per API request; no usage |
@@ -753,7 +799,7 @@ O = observed by a native event, D = derived from the observation source,
 | Canonical event | Claude Code | Gemini CLI | OpenCode | Pi | Codex CLI | Cursor | Copilot CLI |
 |---|---|---|---|---|---|---|---|
 | session.start | O | O | O | O | O | O | O |
-| session.resume | O | O | — | O | O | — | O |
+| session.resume | O | O | D | O | O | — | O |
 | session.clear | O | O | — | O (`new`) | O | — | O (paired) |
 | prompt.submitted | O | O | O | O | O | O | O |
 | model.request | D | O | O | O | O | — | — |
