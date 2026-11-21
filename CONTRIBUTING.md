@@ -68,10 +68,9 @@ what.
 
 ## Checks
 
-Three checks run on every pull request and must pass before merge. A
-fourth, `linked issue`, reads the description (see
-[Linking work](#linking-work)). You can run the three locally from the
-repository root:
+Four checks run on every pull request against its files, and a fifth,
+`linked issue`, reads the description (see [Linking work](#linking-work)).
+You can run the four locally from the repository root:
 
 ```sh
 # Markdown style
@@ -82,7 +81,24 @@ lychee --offline --include-fragments "**/*.md"
 
 # Front matter of documents under docs/
 node scripts/check-front-matter.mjs
+
+# Mermaid diagrams render (downloads the Mermaid CLI through npx)
+node scripts/check-mermaid.mjs
 ```
+
+These checks guard everything else, so the scripts behind them are tested
+too. Every script under `scripts/` has a `<name>.test.mjs` beside it, and
+the tests run on every pull request. A new script comes with its tests, and
+a change in behaviour comes with a test that fails without it. Run them
+after changing anything under `scripts/`:
+
+```sh
+node --test scripts/*.test.mjs
+```
+
+GitHub shows an error box in place of a Mermaid diagram it cannot parse. In
+a sequence diagram, a semicolon ends the statement and `#` starts an entity
+code, so keep both out of message text.
 
 A link to a document that is planned but not yet written is listed in
 `.lycheeignore`; remove the line in the pull request that adds the file.

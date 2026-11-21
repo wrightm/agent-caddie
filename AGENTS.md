@@ -27,9 +27,12 @@ tidy up afterwards.
 3. Run the checks listed under "Checks" in
    [CONTRIBUTING.md](CONTRIBUTING.md#checks) and fix what they report
    before pushing.
-4. Put the pull request on the board:
+4. If you changed anything under `scripts/`, run
+   `node --test scripts/*.test.mjs`. A new script needs a test file beside
+   it; a change in behaviour needs a test that fails without it.
+5. Put the pull request on the board:
    `scripts/board.sh <pr-number> "In Progress"`.
-5. Do not merge. The maintainer reviews and merges every pull request.
+6. Do not merge. The maintainer reviews and merges every pull request.
 
 ## After a merge
 
