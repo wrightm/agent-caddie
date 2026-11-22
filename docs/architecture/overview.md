@@ -3,7 +3,7 @@ title: Architecture overview
 status: living
 last-verified: 2026-11-11
 owner: maintainers
-depends-on-adrs: [0002, 0003, 0004, 0005, 0017, 0019, 0025]
+depends-on-adrs: [0002, 0003, 0004, 0005, 0017, 0018, 0019, 0025]
 ---
 
 # Architecture overview
@@ -72,7 +72,7 @@ driven sides are adapters.
 | `Commands` | inbound | kernel | Operations a human, an agent or CI invokes: report, summary, rules, pack, bundle, eval, doctor | `cli` |
 | `Store` | outbound | kernel | Durable local state: sessions, findings, reports, live stats, journal, overrides, bundles | `store-fs` |
 | `Notifier` | outbound | kernel | Deliver a lesson, nudge or status segment to the human or the model through whatever surface the harness offers | `adapter-claude-code` (hook stdout, status line) |
-| `LlmProvider` | outbound | kernel | Run one coaching completion with model, reasoning and output limits; return text and usage | `provider-noop`; `provider-anthropic` and `provider-claude-cli` (planned) |
+| `LlmProvider` | outbound | kernel | Run one coaching request; return structured findings, token usage and cost | `provider-noop`; `provider-anthropic` (default) and `provider-claude-cli` (fallback when no API key is provided), both planned |
 | `PackSource` | outbound | kernel | Fetch an organisation or updated knowledge pack from a file path or URL | `pack-source-file`; `pack-source-http` (planned, signed) |
 | `Clock` | outbound | kernel | Current time, for gap and TTL arithmetic | real / fake |
 
@@ -109,8 +109,9 @@ explicit:
 - **Purpose**: turn Claude Code's native hooks and transcript JSONL into canonical `CaddieEvent`s and deliver notifications through Claude Code's surfaces.
 - **Begins at**: raw hook stdin JSON or a transcript path. **Ends at**: a `CaddieEvent[]` with a cursor, or a `NotifierResult`. It does not aggregate, judge or store anything.
 - **Inputs**: hook stdin (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, event-specific fields); transcript files under `~/.claude/projects/<cwd-dashed>/<sessionId>.jsonl` and `<sessionId>/subagents/agent-*.jsonl`; status-line stdin JSON.
+- **Transcript text for the coach**: when the LLM coach is enabled, the adapter also supplies the session's turns with their prompt text to `kernel/coach` (3.15). Nothing else receives prompt text. `[ADR-0018]`
 - **Outputs**: `CaddieEvent[]` (`session_meta`, `request`, `prompt`, `tool_call`, `tool_result`, `subagent_spawn`, `compaction`, `command`, `mcp_change`, `hook_run`, `turn_end`, `harness_event`), each tagged `source: observed | derived`; `Cursor` (file offsets plus seen request ids); `HarnessCapabilities`.
-- **Owns**: knowledge of the JSONL entry types and their quirks (one API response is written once per content block with duplicated `usage`, so it dedupes by `requestId`; raw `input_tokens` is often a placeholder while cache fields are reliable); the cwd-to-directory encoding; detection of the cache TTL (1h if `ephemeral_1h_input_tokens` ever appears, else 5m).
+- **Owns**: knowledge of the JSONL entry types and their quirks (one API response is written once per content block with duplicated `usage`, so it dedupes by `requestId`; raw `input_tokens` is often a placeholder while cache fields are reliable); the cwd-to-directory encoding; identifying which harness invoked a hook, because some harnesses load Claude Code hook configuration; detection of the cache TTL (1h if `ephemeral_1h_input_tokens` ever appears, else 5m).
 - **Depends on**: `Clock`. It reads files through a small `FileReader` it receives from the composition root, so tests can feed it strings.
 - **Must not know about**: rules, pricing, scoring, the store layout, other harnesses.
 - **Failure behaviour**: unknown entry types are counted and skipped, never thrown; a truncated trailing line is left for the next read; a missing transcript yields an empty event list and a `harness_event` of kind `transcript_missing`.
@@ -120,9 +121,9 @@ explicit:
 
 - **Purpose**: be the one process the harness or the human runs. Parse arguments, wire concrete adapters to the kernel's ports, dispatch hook events and commands, and guarantee hooks never break the harness.
 - **Begins at**: `process.argv` and stdin. **Ends at**: stdout for the harness or human, exit code, and a detached `finalize` child when a session ends.
-- **Inputs**: `caddie hook <event>` with hook stdin; `caddie finalize <id>`; `caddie report|summary|rules|pack|bundle|eval|doctor|statusline`.
+- **Inputs**: `caddie hook <event>` with hook stdin; `caddie finalize <id>`; `caddie coach` (planned); `caddie report|summary|rules|pack|bundle|eval|doctor|statusline`.
 - **Outputs**: hook JSON (`hookSpecificOutput.additionalContext`, `systemMessage`) or nothing for async hooks; human text, Markdown or JSON for commands; the status-line segment.
-- **Owns**: the static registry (which adapters, collectors, rules, reporters and sinks are active); `safeHook` (catch everything, log to `~/.caddie/logs/hook.log`, exit 0 with valid output); argument parsing.
+- **Owns**: the static registry (which adapters, collectors, rules, reporters and sinks are active); `safeHook` (catch everything, log to `~/.caddie/logs/hook.log`, exit 0 with valid output); argument parsing; selection of the `LlmProvider` adapter and the recursion guard for coach processes (both in 3.15).
 - **Not the only host**: the kernel exports `createCaddie(ports)` and is importable as a library with no filesystem or `process.argv` access at import time. The CLI is one host; in-process harness plugins (OpenCode, Pi) are another and wire their own port implementations. See harness-lifecycles.md §4.3.
 - **Depends on**: kernel public API and every adapter package.
 - **Must not know about**: transcript formats or rule internals.
@@ -220,7 +221,7 @@ explicit:
 
 - **Purpose**: an append-only record of what the user did and what Caddie did, so behaviour can be reviewed, shared and debugged. `[ADR-0011, ADR-0030 proposed]`
 - **Begins at**: a `JournalEvent` from any kernel component. **Ends at**: a line in `~/.caddie/journal/<yyyy-mm>.jsonl`.
-- **Inputs/outputs**: events of kind `lesson_injected`, `nudge_shown`, `nudge_suppressed`, `finding_emitted`, `report_written`, `rule_changed`, `config_changed`, `pack_loaded`, `cli_command`, `hook_error`, `coach_spend`, and behaviour signals (`command`, `compaction`, `model_switch`, `prompt_heuristics`). All redacted according to `privacy` before writing.
+- **Inputs/outputs**: events of kind `lesson_injected`, `nudge_shown`, `nudge_suppressed`, `finding_emitted`, `report_written`, `rule_changed`, `config_changed`, `pack_loaded`, `cli_command`, `hook_error`, `coach_spend`, `coach_skipped`, `coach_error`, and behaviour signals (`command`, `compaction`, `model_switch`, `prompt_heuristics`). All redacted according to `privacy` before writing.
 - **Owns**: retention (90 days default) and redaction at the write boundary.
 - **Depends on**: `Store`, `Clock`. **Must not know about**: who consumes the journal.
 - **Boundary tests**: redaction; retention; ordering.
@@ -230,6 +231,7 @@ explicit:
 - **Purpose**: orchestrate the components in the right order for the three entry points: live update, finalize and summarise.
 - **Begins at**: a session locator or a time range. **Ends at**: outputs handed to sinks and a journal entry. The pipeline contains no coaching logic.
 - **Order (finalize)**: locate → wait for transcript stability → collect (adapter, incremental, dedup) → aggregate → risk → resolve rules → evaluate → risk gate → impact tracker → score → reporters → sinks → journal.
+- **LLM coach**: when enabled, the coach (3.15) runs as a step of finalize after the deterministic outputs are written, so its failure or timeout cannot affect them.
 - **Owns**: ordering, the finalize lock (one finalizer per session), orphan catch-up.
 - **Depends on**: every port. **Must not know about**: file formats.
 - **Boundary tests**: end-to-end on fixtures with a temporary `CADDIE_HOME`; lock contention; orphan catch-up.
@@ -238,18 +240,24 @@ explicit:
 
 - **Purpose**: package local state for sharing, with the user in control. `[ADR-0011]`
 - **Begins at**: a time window and options. **Ends at**: `~/.caddie/bundles/<date>.tar.gz` plus a printed manifest of exactly what is inside.
-- **Owns**: the redaction pass (paths, prompt text, hostnames, usernames) and the manifest format.
+- **Owns**: the redaction pass (paths, prompt text, hostnames, usernames), the removal of evidence quotes from coaching findings (they are never bundled, whatever the options), and the manifest format.
 - **Depends on**: `Store`. **Must not know about**: any upload destination. It never uploads.
 - **Boundary tests**: redaction; manifest completeness; round trip into an eval scenario.
 
 ### 3.15 Kernel: LLM coach (`kernel/coach`)
 
-- **Purpose**: optional prose coaching on top of the deterministic findings, under a budget. `[ADR-0018 proposed]`
-- **Begins at**: deterministic findings plus a redacted session digest. **Ends at**: `Finding`s with `confidence < 1` and a `coach_spend` journal event. Disabled by default.
-- **Owns**: `CoachBudget` (per-session, per-day, per-month caps computed from the journal; `skip` or `downgrade` on exceed), the prompt version, reasoning settings (effort, thinking budget), `minSessionCostUsd` gating.
-- **Depends on**: `LlmProvider`, `Journal`, `Clock`. **Must not know about**: provider SDKs.
-- **Failure behaviour**: any provider error or budget refusal yields no finding and a journal entry; never blocks a report.
-- **Boundary tests**: budget windows; downgrade path; redaction of the digest; no-op provider.
+- **Purpose**: optional coaching that needs judgement the rules cannot make, grounded in the user's own prompts. Off by default; turning it on is the only consent it asks for. `[ADR-0018]`
+- **Begins at**: a trigger for one session, the deterministic findings, and the session's transcript text from the harness adapter. **Ends at**: validated `Finding`s with `category: coaching` and `confidence < 1`, and a `coach_spend`, `coach_skipped` or `coach_error` journal event.
+- **Triggers**: a step of the detached `caddie finalize` (the default); a mid-session checkpoint, where the `Stop` hook checks the journal and spawns a detached one-shot worker when a threshold is met; and the `caddie coach` command. All three run the same code. There is no daemon and no scheduled task.
+- **What the model is asked**: a fixed set of judgements: which corrections belong to the same issue, where a task starts and ends, the likely cause of a misalignment (the prompt or the agent), and which habit a finding belongs to. It reports a problem only where the transcript shows harm (pushback, rework, a failed check or abandonment). It gives no scores; rules do the counting and scores are computed in code.
+- **Validation**: every pass is two model calls. The coach call returns findings; each evidence quote must then appear verbatim, at the stated turn, in the redacted text the model was sent, or the finding is dropped; a second call keeps or rejects each remaining finding. Only kept findings are shown or counted.
+- **Owns**: `CoachBudget` (call caps on every route: one end-of-session pass and a capped number of checkpoint passes per session, and a daily cap; per-session, per-day and per-month USD caps on the API route, metered from the provider's usage; over budget means skip); `minSessionCostUsd` gating; the coach and validator prompt versions; redaction of secrets before text is sent; the output schema; assignment of findings to the pack's fixed habit list, the habit state (counts and trend, no prompt text) and the one focus habit; the pending checkpoint result.
+- **Depends on**: `LlmProvider`, the harness adapter (transcript text), `Store`, `Journal`, `Clock`. **Must not know about**: provider SDKs, which provider adapter is serving it, or any harness by name.
+- **Provider selection** (done by the composition root, 3.2): the provider named in `config.llmCoach`; else `provider-anthropic` if an API key is provided; else `provider-claude-cli` if the session's harness is Claude Code and `claude` is installed and signed in; else no coaching, with `coach_skipped`. A failed API call never switches provider.
+- **Guards**: a coach child process carries an environment variable owned by Caddie, and every Caddie hook exits at once when it is set; one coach process per session, by lock; the model calls have no tools; transcript text is passed as delimited data and nothing in it is followed as an instruction; output that does not match the schema is discarded; a hard timeout.
+- **Capability gate**: needs a readable transcript and a point to run after the session (see [capability-matrix.md](capability-matrix.md)). Claude Code is the only harness verified so far.
+- **Failure behaviour**: any provider error or budget refusal yields no finding and a journal entry; no automatic retry within a session; after repeated failures the coach pauses until the next day and `doctor` reports it. It never blocks a prompt or a report.
+- **Boundary tests**: call and USD budget windows; provider selection order; secret redaction; the quote check; rejection by the validation pass; schema-invalid output; prompt-injection fixtures; the recursion guard; the no-op provider.
 
 ### 3.16 Reporters (`packages/reporters`)
 
@@ -267,8 +275,9 @@ explicit:
 ### 3.18 Notifier adapter (Claude Code)
 
 - **Purpose**: deliver what the kernel decided to say through what the harness offers.
-- **Surfaces**: `additionalContext` on `SessionStart` (the one ≤160-char lesson, costs tokens so it is capped), `systemMessage` on any hook (shown to the human, zero tokens; used for nudges), the status-line segment (`$0.42 · cache 91% · coach 78 · ⚠ cold compact`). `[ADR-0007]`
-- **Owns**: the mapping from `Notification {audience: human|model, urgency, text}` to the surface, and the rule that nothing goes to the model except the lesson.
+- **Surfaces**: `additionalContext` on `SessionStart` (the one ≤160-char lesson, costs tokens so it is capped), `systemMessage` on any hook (shown to the human, zero tokens; used for nudges and for the coach's checkpoint findings), the status-line segment (`$0.42 · cache 91% · coach 78 · ⚠ cold compact`). `[ADR-0007]`
+- **Coach's focus habit**: shown to the human at session start as a `systemMessage`. Whether Claude Code displays a `systemMessage` returned from `SessionStart` is not yet verified; if it does not, the habit goes through `additionalContext`. `[ADR-0018]`
+- **Owns**: the mapping from `Notification {audience: human|model, urgency, text}` to the surface, and the rule that nothing goes to the model except the lesson and, only on that fallback, the focus habit.
 - **Boundary tests**: output JSON per hook event; token cap.
 
 ### 3.19 Plugin package (`plugin/`)
@@ -290,7 +299,7 @@ Everything Caddie persists lives under `~/.caddie/` (override with
 | `rules/overrides.json` | Rule overrides |
 | `rules/custom/*.json`, `rules/custom/*.cjs` | User rules |
 | `sessions/<id>.json` | `SessionRecord` (survives the harness's own transcript cleanup) |
-| `sessions/<id>.findings.json` | `Finding[]` for the session |
+| `sessions/<id>.findings.json` | `Finding[]` for the session. Coaching findings carry redacted evidence quotes, which are removed after 90 days |
 | `reports/<date>-<id8>.md` | Markdown report |
 | `live/<id>.json` | `LiveStats` for sessions in progress (deleted on finalize) |
 | `index.jsonl` | One line per finalized session, for summaries |
@@ -314,5 +323,6 @@ Every persisted document carries `schemaVersion`. The pack carries
 | Who decides whether to say it? | Risk gate (content) and config `nudges` (channel); the notifier only delivers. |
 | Who talks to a model? | Only the LLM coach, through `LlmProvider`, under `CoachBudget`. |
 | Who writes to disk? | Only the `Store` adapter; the kernel asks. |
-| Who touches the network? | Nothing by default. Planned: `PackSource` (signed pack) and an opt-in upload sink. |
+| Who reads prompt text? | The harness adapter, to compute heuristics and then discard it; and the LLM coach, only when the user has enabled it. |
+| Who touches the network? | Nothing by default. The LLM coach does when the user enables it: redacted transcript text goes to the configured provider. Planned: `PackSource` (signed pack) and an opt-in upload sink. |
 | Who can block the user? | Nobody. Hooks always exit 0 and never return a blocking decision. |

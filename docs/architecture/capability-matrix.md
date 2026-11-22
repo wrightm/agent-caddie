@@ -3,7 +3,7 @@ title: Capability matrix
 status: living
 last-verified: 2026-11-11
 owner: maintainers
-depends-on-adrs: [0019, 0025]
+depends-on-adrs: [0018, 0019, 0025]
 ---
 
 # Capability matrix
@@ -58,7 +58,10 @@ finding's `confidence` is reduced when its evidence is `derived`.
 | Risk gate | prompt heuristics, paths touched or cwd | with only cwd available the gate is coarser and the risk level is marked `low-evidence` | risk |
 | Rule impact tracker | stored history (always available) | none; harness-independent | impact |
 | Journal, bundle, overrides, pack CLI | none | none; harness-independent | kernel, cli |
-| LLM coaching | deterministic findings (any harness) | none beyond the features above | coach |
+| LLM coaching at session end | the coach enabled, `hasTranscript` with the user's prompt text readable, and a point to run after the session (`hasSessionEnd`, or orphan catch-up) | deterministic findings only; `doctor` says which requirement is missing | coach |
+| LLM coaching checkpoints during the session | as above, plus `hasTurnBoundary` and `hasPromptEvent` | no checkpoints; the end-of-session pass covers the whole session | coach, cli |
+| Checkpoint finding shown during the session | `canNotifyHuman` | shown in the report only | notifier |
+| Focus habit at session start | `canNotifyHuman` on the session-start event | `canInjectContext` (the habit then reaches the model, not the person), else the status line or the report | notifier |
 | Eval scenarios | an adapter for the scenario's `harness` field | scenario skipped with reason `no-adapter` | evals |
 
 ## Minimal and full harness fixtures
@@ -93,5 +96,8 @@ leaves false.
   human-audience notification silently; the fallback is journaled.
 - The pipeline checks `hasSessionEnd` and `hasTurnBoundary` to decide between
   live finalize and orphan catch-up.
+- The coach checks its requirements before each pass and journals
+  `coach_skipped` with the missing capability when they are not met.
+  `[ADR-0018]`
 - Nothing else in the kernel reads capability flags. A component that needs a
   new flag adds it here first, in the same PR as the adapter that declares it.
