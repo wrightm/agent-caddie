@@ -48,6 +48,7 @@ jobs:
           args: >-
             --no-progress
             --include-fragments
+            --root-dir ${{ github.workspace }}
             ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--max-retries 3' || '--offline' }}
             "**/*.md"
           fail: true
