@@ -3,7 +3,7 @@ title: Flows
 status: living
 last-verified: 2026-11-11
 owner: maintainers
-depends-on-adrs: [0002, 0007, 0009, 0011, 0014, 0019]
+depends-on-adrs: [0002, 0007, 0009, 0011, 0014, 0018, 0019]
 ---
 
 # Flows
@@ -122,6 +122,11 @@ Notes:
   the handler reads at most the last 2 MB and marks live stats `partial`.
 - Nudges in step 13 come from `LiveStats` computed at the previous `Stop`;
   they are one turn behind by design, which is fine for coaching.
+- When the LLM coach is enabled, the `Stop` handler also checks whether a
+  coaching checkpoint is due and may spawn a detached worker, and a
+  checkpoint finding may be shown as a `systemMessage` at a later hook.
+  Both are in flow 7. The `UserPromptSubmit` handler is unchanged: it
+  measures and never acts on the prompt.
 - If `SessionEnd` never arrives (the harness crashed, the terminal was
   killed), flow 2 is still triggered by orphan catch-up: the next hook of any
   session, or any CLI command, finalizes live sessions whose transcript has
@@ -201,9 +206,11 @@ Notes:
 
 - Step 5 to 15 are pure given their inputs; the pipeline test replays a
   fixture transcript with a fake clock and asserts byte-identical outputs.
-- The LLM coach (flow 7) slots between step 13 and 14 when enabled. It is
-  the only step that can take more than a few seconds and the only one that
-  spends money, so it runs last and cannot change the deterministic findings.
+- When the LLM coach is enabled, flow 7 runs after step 17 and before the
+  lock is released. It is the only step that can take more than a few
+  seconds and the only one that spends money. The deterministic outputs are
+  already written, so a coach failure or timeout cannot affect them. Its
+  validated findings are then added to the findings file and the report.
 - The lesson chosen for `lesson.json` is the highest-severity finding with a
   lesson in the pack, excluding lessons shown in the last N sessions
   (`lesson.repeatAfterSessions`).
@@ -352,7 +359,8 @@ Detail by step number:
   provenance and doctor output.
 - **4**: paths become `<path:hash8>`; usernames and hostnames are replaced.
   Prompt text is always removed, unless `storePromptText` is set and
-  `--no-redact` is passed.
+  `--no-redact` is passed. Evidence quotes on coaching findings are removed
+  whatever the options.
 - **5**: writes `bundles/<date>.tar.gz` through a temporary file and a
   rename.
 - **6**: `bundle_created {path, counts, redacted: true}`.
@@ -424,51 +432,127 @@ identifiers and renames ship with an alias for two minor versions; exit code
 is 0 even when findings are severe (Caddie reports, it does not judge the
 agent's run).
 
-## 7. LLM coaching pass (planned, interface defined now)
+## 7. LLM coaching pass (planned)
+
+Off by default. One coaching pass is the same whatever triggered it: the
+finalize pipeline (flow 2), a mid-session checkpoint (second diagram) or the
+`caddie coach` command. `[ADR-0018]`
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant P as pipeline
+    participant T as trigger
     participant C as kernel/coach
     participant BG as CoachBudget
-    participant J as journal
+    participant AD as harness adapter
     participant PR as LlmProvider
+    participant J as journal
 
-    P->>C: coach(session, findings, config)
+    T->>C: coach(session, findings, config)
     C->>C: check whether to skip
-    C->>BG: allow(estimateUsd)
-    alt over budget, onExceeded = skip
-        BG-->>C: {ok: false, reason}
+    C->>BG: allow(pass)
+    break skipped or over budget
         C->>J: append coach_skipped
-    else over budget, onExceeded = downgrade
-        BG-->>C: {ok: true, downgradeTo}
     end
-    C->>C: build redacted digest
-    C->>PR: complete(request)
-    PR-->>C: {text, usage, model}
-    C->>BG: record(usage, usd)
+    C->>AD: read transcript text
+    C->>C: redact secrets
+    C->>PR: coaching request
+    PR-->>C: findings, usage, cost
+    C->>C: quote check
+    C->>PR: validation request
+    PR-->>C: verdicts, usage, cost
+    C->>BG: record(pass)
     C->>J: append coach_spend
-    C-->>P: coaching Finding[]
+    C-->>T: validated coaching Finding[]
 ```
 
 Detail by step number:
 
-- **1**: the config is `config.llmCoach`.
-- **2**: skips if coaching is disabled, the session cost is below
-  `minSessionCostUsd`, or the trigger does not match.
-- **3**: budget windows are computed from the journal's `coach_spend`
-  events.
-- **5**: `coach_skipped {reason}`.
-- **6**: `downgradeTo` names a cheaper model from the pack.
-- **7**: the digest holds rule ids, metrics and the risk level, and no
-  prompt text.
-- **8**: `complete({model, system: promptVersion, input: digest, reasoning,
-  maxOutputTokens})`. Providers are `anthropic`, `claude-cli` and `noop`.
-- **10**: the cost in USD comes from the pack's pricing.
-- **11**: `coach_spend {model, usd, promptVersion, reasoning}`.
-- **12**: `Finding[] {category: coaching, confidence < 1, model,
-  promptVersion}`.
+- **1**: the config is `config.llmCoach`. The caller holds the coach lock
+  for the session, so one coach process runs per session.
+- **2**: skips if coaching is disabled, the harness lacks a readable
+  transcript, no provider is available, or the session cost is below
+  `minSessionCostUsd`.
+- **3**: call caps apply on every route: one end-of-session pass and a
+  capped number of checkpoint passes per session, and a daily cap. USD caps
+  (per session, per day, per month) apply on the API route. Both are
+  computed from the journal's `coach_spend` events.
+- **4**: `coach_skipped {reason}`. The flow ends here; there is no downgrade
+  to a cheaper model. The session can be coached later with `caddie coach`.
+- **5**: the turns of the session with their prompt text, from the harness's
+  own transcript. On an end-of-session pass the coach is also given the
+  session's checkpoint findings, so the same point is not made twice.
+- **6**: secrets are redacted before anything is sent. The redacted text is
+  what the model sees and what quotes are checked against.
+- **7**: the request carries the coach prompt version, the deterministic
+  findings, the pack's habit list and the transcript as delimited data. The
+  call has no tools. The provider is `anthropic`, `claude-cli` or `noop`;
+  the coach does not know which.
+- **8**: output that does not match the schema is discarded. Each finding
+  carries a judgement type, the harm observed, an evidence quote with its
+  turn, a habit and one suggested rewrite of the quoted prompt.
+- **9**: each quote must appear verbatim at the stated turn in the redacted
+  text. A finding that fails is dropped.
+- **10, 11**: a second call, with the validator prompt version, sees each
+  remaining finding with its quote and the surrounding turns and keeps or
+  rejects it.
+- **12**: the coach call and the validation call count as one pass.
+- **13**: `coach_spend {provider, model, usd, metered or estimated, prompt
+  versions}`. The cost is metered from provider usage on the API route and
+  is an estimate on the `claude-cli` route. The numbers of dropped and
+  rejected findings are journalled too.
+- **14**: `Finding[] {category: coaching, confidence < 1, provider, model,
+  coach and validator prompt versions, habit, evidence quotes}`. Only kept
+  findings are returned.
+
+A mid-session checkpoint runs the same pass from a detached worker:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant H as Claude Code
+    participant CLI as caddie (hook handler)
+    participant K as kernel
+    participant W as coach worker (detached)
+    participant ST as store-fs (~/.caddie)
+
+    H->>CLI: Stop
+    CLI->>K: is a checkpoint due?
+    opt threshold met
+        CLI->>W: spawn detached worker
+    end
+    CLI-->>H: {} (output ignored)
+    W->>W: wait for a stable transcript
+    W->>W: coaching pass (diagram above)
+    W->>ST: write pending checkpoint finding
+    H->>CLI: a later hook
+    CLI->>ST: read and clear pending finding
+    CLI-->>H: systemMessage (checkpoint finding)
+```
+
+Detail by step number:
+
+- **2**: a cheap check against the journal: for example the deterministic
+  rules see a correction loop in the `prompt_heuristics` events, or a set
+  number of turns has passed since the last pass. Checkpoints are on by
+  default with conservative thresholds and can be turned off.
+- **3**: detached, with stdio ignored and the child unreferenced. The child
+  carries Caddie's environment variable, and every Caddie hook exits at
+  once when it is set, so the worker cannot trigger itself.
+- **5**: `Stop` can fire before the transcript is written.
+- **7**: at most one finding. Nothing is shown from the worker itself.
+- **8 to 10**: the finding is shown at the next hook where the harness
+  displays a `systemMessage`, within `nudges.maxPerSession`. It never blocks
+  a prompt.
+
+Notes:
+
+- A `Stop` that does not fire loses nothing: the end-of-session pass still
+  covers the whole session.
+- On the `claude-cli` route the child `claude` process is also started with
+  its hooks disabled.
+- After repeated failures the coach pauses until the next day and `doctor`
+  reports it.
 
 ## 8. Pack update and organisation packs
 
@@ -525,4 +609,6 @@ signing lands with the auto-updater (`[ADR-0003]`).
 | Invalid override or custom rule | validation finding `config.rule-invalid`, rule skipped, other rules run | rule engine tests |
 | Unknown model id | cost `null`, `costComplete: false`, finding `pack.unknown-model` with the id | pricing, aggregate tests |
 | Pack source unreachable | previous org pack kept, finding `pack.update-failed` | pack tests |
-| LLM provider error | no coaching finding, journal `coach_error`, report still written | coach tests |
+| LLM provider error or coach timeout | no coaching finding, journal `coach_error`, report still written; no retry in the session and no switch to another provider | coach tests |
+| Coach output fails the schema, the quote check or the validation pass | the output or the finding is discarded and counted in the journal | coach tests |
+| A Caddie hook runs inside a coach child process | the hook sees Caddie's environment variable and exits at once | hook integration |
